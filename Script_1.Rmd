@@ -1,0 +1,1296 @@
+---
+title: "Script 1: Proteomic processing, DEG analysis, PCA analysis"
+author: "Maxwell Horton"
+date: "2025-03-03"
+output: multiple
+---
+
+load packages
+```{r}
+library(MSnbase)
+library(biomaRt)
+library(dplyr)
+library(SummarizedExperiment)
+library(ggplot2)
+library(tibble)
+library(tidyr)
+library(PerformanceAnalytics)
+library(reshape2)
+library(limma)
+```
+
+
+load files
+```{r}
+#protein intensities
+protein_intensities <- read.delim("required_files/report.tsv.protein_intensities.tsv", row.names = 1)
+
+#remove technical replicates
+protein_intensities <- protein_intensities[, !grepl("b", colnames(protein_intensities), ignore.case = TRUE)]
+
+#adjust column names
+colnames(protein_intensities) <- sub("X035_Austin_", "", colnames(protein_intensities))
+colnames(protein_intensities) <- sub("_a_.*", "", colnames(protein_intensities))
+
+
+#ion intensities
+ion_intensities <- read.delim("required_files/report.tsv.ion_intensities.tsv")
+
+#remove technical replicates
+ion_intensities <- ion_intensities[, !grepl("b", colnames(ion_intensities), ignore.case = TRUE)]
+
+#adjust column names
+colnames(ion_intensities) <- sub("X035_Austin_", "", colnames(ion_intensities))
+colnames(ion_intensities) <- sub("_a_.*", "", colnames(ion_intensities))
+```
+
+
+#               Data Processing for Summarized Experiment Object                
+
+look at the peptides assigned to multiple proteins
+```{r}
+peptides_for_multiple_proteins <- ion_intensities[grepl(";", ion_intensities$protein), ]
+
+#unique values in peptides_for_multiple_proteins$proteins
+num_unique_proteins <- length(unique(peptides_for_multiple_proteins$protein))
+print(num_unique_proteins)
+
+#make a df of the unique values in peptides_for_multiple_proteins$proteins 
+unique_multiple_proteins <- data.frame(protein = unique(peptides_for_multiple_proteins$protein))
+
+# Split the proteins column into a list of vectors
+protein_list <- strsplit(unique_multiple_proteins$protein, ";")
+
+# Determine the maximum number of UniProt IDs in any row
+max_proteins <- max(sapply(protein_list, length))
+
+# Create a new data frame with columns protein_1 to protein_17
+protein_columns <- do.call(rbind, lapply(protein_list, function(x) {
+  # Pad the vector with NAs if it has fewer than max_proteins elements
+  c(x, rep(NA, max_proteins - length(x)))
+}))
+
+# Convert to a data frame and assign column names
+colnames(protein_columns) <- paste0("protein_", 1:max_proteins)
+unique_multiple_proteins_expanded <- as.data.frame(protein_columns, stringsAsFactors = FALSE)
+
+
+# Connect to the Ensembl database using biomaRt for mouse data
+ensembl <- useMart("ensembl", dataset = "mmusculus_gene_ensembl")
+
+# Extract unique UniProt IDs from your data frame
+uniprot_ids <- unique(na.omit(unlist(unique_multiple_proteins_expanded[, grep("^protein_", colnames(unique_multiple_proteins_expanded))])))
+
+# Retrieve gene names for UniProt IDs
+uniprot_to_gene <- getBM(
+  attributes = c("uniprotswissprot", "mgi_symbol"),
+  filters = "uniprotswissprot",
+  values = uniprot_ids,
+  mart = ensembl
+)
+
+# Create a named vector for mapping UniProt IDs to gene names
+uniprot_to_gene_map <- setNames(uniprot_to_gene$mgi_symbol, uniprot_to_gene$uniprotswissprot)
+
+# Add gene columns to your data frame
+for (i in 1:17) {
+  protein_col <- paste0("protein_", i)
+  gene_col <- paste0("gene_", i)
+  
+  unique_multiple_proteins_expanded[[gene_col]] <- sapply(unique_multiple_proteins_expanded[[protein_col]], function(id) {
+    if (is.na(id)) {
+      return(NA)
+    } else {
+      return(uniprot_to_gene_map[id])
+    }
+  })
+}
+
+write.csv(unique_multiple_proteins_expanded, file = "Uniprot_and_gene_names_of_semicolon.csv")
+```
+
+
+make peptide_matches_number df
+```{r}
+ion_intensities[ion_intensities == 0.000] <- NA
+
+peptide_matches_number <- ion_intensities %>%
+  group_by(protein) %>%
+  summarise(
+    F0hPC1 = sum(!is.na(F0hPC1)),
+    F0hPC2 = sum(!is.na(F0hPC2)),
+    F0hPC3 = sum(!is.na(F0hPC3)),
+    F0hPP1 = sum(!is.na(F0hPP1)),
+    F0hPP2 = sum(!is.na(F0hPP2)),
+    F0hPP3 = sum(!is.na(F0hPP3)),
+    F24hPC1 = sum(!is.na(F24hPC1)),
+    F24hPC2 = sum(!is.na(F24hPC2)),
+    F24hPC3 = sum(!is.na(F24hPC3)),
+    F24hPP3 = sum(!is.na(F24hPP3)),
+    F24hPP4 = sum(!is.na(F24hPP4)),
+    F24hPP5 = sum(!is.na(F24hPP5)),
+    M0hPC1 = sum(!is.na(M0hPC1)),
+    M0hPC3 = sum(!is.na(M0hPC3)),
+    M0hPC4 = sum(!is.na(M0hPC4)),
+    M0hPP1 = sum(!is.na(M0hPP1)),
+    M0hPP2 = sum(!is.na(M0hPP2)),
+    M0hPP3 = sum(!is.na(M0hPP3)),
+    M24hPC3 = sum(!is.na(M24hPC3)),
+    M24hPC4 = sum(!is.na(M24hPC4)),
+    M24hPC5 = sum(!is.na(M24hPC5)),
+    M24hPP1 = sum(!is.na(M24hPP1)),
+    M24hPP3 = sum(!is.na(M24hPP3)),
+    M24hPP5 = sum(!is.na(M24hPP5))
+  )
+
+peptide_matches_number <- as.data.frame(peptide_matches_number)
+
+rownames(peptide_matches_number) <- peptide_matches_number$protein
+
+# Remove the first column
+peptide_matches_number <- peptide_matches_number[, -1]
+```
+
+
+load sample table and protein intensities again
+```{r}
+sample_table <- read.csv("required_files/sample_table.csv")
+  
+#protein intensities
+protein_intensities <- read.delim("required_files/report.tsv.protein_intensities.tsv", row.names = 1)
+
+#remove technical replicates
+protein_intensities <- protein_intensities[, !grepl("b", colnames(protein_intensities), ignore.case = TRUE)]
+
+#adjust column names
+colnames(protein_intensities) <- sub("X035_Austin_", "", colnames(protein_intensities))
+colnames(protein_intensities) <- sub("_a_.*", "", colnames(protein_intensities))
+
+#make 0.000 into NA
+protein_intensities[protein_intensities == 0.000] <- NA
+```
+
+find the same protein names in protein_intensities and peptide_matches_number
+```{r}
+# Step 1: Identify common row names
+common_proteins <- intersect(rownames(peptide_matches_number), rownames(protein_intensities))
+
+# Step 2: Subset both data frames to include only common row names
+peptide_matches_number <- peptide_matches_number[common_proteins, , drop = FALSE]
+protein_directlfq <- protein_intensities[common_proteins, , drop = FALSE]
+
+# Step 3: Ensure both data frames are ordered by common row names
+peptide_matches_number <- peptide_matches_number[order(rownames(peptide_matches_number)), ]
+protein_directlfq <- protein_directlfq[order(rownames(protein_directlfq)), ]
+```
+
+load into summarized experiment
+```{r}
+data <- SummarizedExperiment(assays = list(protein_directlfq = protein_directlfq,
+                                           peptide_matches_number = peptide_matches_number),
+                             colData = sample_table)
+```
+
+save data object
+```{r}
+saveRDS(data, "data.RDS")
+```
+
+
+
+
+
+#                         Quality Control Analysis                              
+
+make folder
+```{r}
+dir.create("quality_control")
+```
+
+
+proteins per sample
+```{r}
+df <- data.frame(Sample = data$run,
+                 protein_number = colSums(assay(data, "protein_directlfq") > 0, na.rm = TRUE),
+                 condition = data$condition_label)
+
+#calculate mean
+mean_df <- df %>%
+  group_by(condition) %>%
+  summarise(mean_protein_number = mean(protein_number))
+
+#desired order
+desired_order <- c("Female PC Fed", "Female PC Fast", 
+                   "Female PP Fed", "Female PP Fast", 
+                   "Male PC Fed", "Male PC Fast", 
+                   "Male PP Fed", "Male PP Fast")
+df$condition <- factor(df$condition, levels = desired_order)
+
+
+plot <- ggplot(df, aes(x = as.factor(condition), y = protein_number)) +
+  geom_bar(stat = "summary", aes(fill = condition), fun = "mean") +  # Use condition for fill
+  geom_jitter(width = 0.4, size = 3, alpha = 1) +
+  stat_summary(fun = "mean", geom = "text", aes(label = round(..y.., 0)), vjust = -1) +
+  labs(x = "", y = "Protein Number") +
+  scale_fill_manual(values = c("#e60049", "#0bb4ff", "#00bfa0", "#e6d800", "#9b19f5", "#ffa300", "#dc0ab4", "#b3d4ff")) + 
+  theme_classic() +
+  theme(text = element_text(family = "Arial"),
+        legend.position = "right", axis.text.x = element_text(size = 10, angle = 90, hjust = 1))+
+  ylim(0, 5500)
+
+ggsave("quality_control/protein_per_category_average.png", plot = plot, width = 7, height = 5, dpi = 300)
+```
+
+peptides per sample
+```{r}
+df <- data.frame(Sample = data$run,
+                 peptide_number = colSums(assay(data, "peptide_matches_number"), na.rm = TRUE),
+                 condition = data$condition_label)
+
+#calculate mean
+mean_df <- df %>%
+  group_by(condition) %>%
+  summarise(mean_peptide_number = mean(peptide_number))
+
+#desired order
+desired_order <- c("Female PC Fed", "Female PC Fast", 
+                   "Female PP Fed", "Female PP Fast", 
+                   "Male PC Fed", "Male PC Fast", 
+                   "Male PP Fed", "Male PP Fast")
+df$condition <- factor(df$condition, levels = desired_order)
+
+plot <- ggplot(df, aes(x = as.factor(condition), y = peptide_number)) +
+  geom_bar(stat = "summary", aes(fill = condition), fun = "mean") +  # Use condition for fill
+  geom_jitter(width = 0.4, size = 3, alpha = 1) +
+  stat_summary(fun = "mean", geom = "text", aes(label = round(..y.., 0)), vjust = -2.75) +
+  labs(x = "", y = "Peptide Number") +
+  scale_fill_manual(values = c("#e60049", "#0bb4ff", "#00bfa0", "#e6d800", "#9b19f5", "#ffa300", "#dc0ab4", "#b3d4ff")) + 
+  theme_classic() +
+  theme(text = element_text(family = "Arial"),
+        legend.position = "right", axis.text.x = element_text(size = 10, angle = 90, hjust = 1))+
+  ylim(0, 75000)
+
+ggsave("quality_control/precursor_number_average.png", plot = plot, width = 7, height = 5, dpi = 300)
+```
+
+coefficient of variation
+```{r}
+df <- as.data.frame(assay(data, "protein_directlfq")) %>% 
+  rownames_to_column("protein") %>%
+  pivot_longer(
+    cols = -protein,
+    names_to = "sample",
+    values_to = "value") %>%
+  merge(as.data.frame(colData(data)), by.x = "sample", by.y = "row.names") %>%
+  group_by(protein, condition_label) %>%
+  summarise(
+    mean_value = mean(value, na.rm = TRUE),  # Calculate mean, removing NA values if any
+    sd_value = sd(value, na.rm = TRUE),      # Calculate standard deviation
+    count = n(),                             # Count of data points (for checking sufficient data)
+    cv_value = (sd_value / mean_value)) # Calculate Coefficient of Variation as a percentage
+
+df$condition_label <- factor(df$condition_label, levels = desired_order)
+
+plot <- ggplot(df, aes(x = condition_label, y = cv_value * 100, fill = condition_label)) +  # Multiply cv_value by 100
+  geom_violin(scale = "width") +
+  geom_boxplot(width = 0.25) +
+  theme_classic() +
+  scale_y_continuous(labels = scales::percent_format(scale = 1, accuracy = 1),  # Format y-axis as percentage
+                     breaks = seq(0, 150, 25)) +  # Set y-axis breaks
+  labs(title = "", x = "Sample", y = "Coefficient of Variation (%)", fill = "Condition") +
+  scale_fill_manual(values = c("#e60049", "#0bb4ff", "#00bfa0", "#e6d800", "#9b19f5", "#ffa300", "#dc0ab4", "#b3d4ff")) +
+  theme(axis.title.x = element_blank(),
+        text = element_text(family = "Arial"),
+        axis.text.x = element_text(size = 10, angle = 90, hjust = 1),  # Show x-axis text
+        axis.ticks.x = element_blank(),
+        legend.position = "right",
+        legend.direction = "vertical")
+
+ggsave("quality_control/coefficient_of_variation.png", plot = plot, width = 7, height = 6, dpi = 300)
+```
+missing values
+```{r}
+df <- data.frame(Sample = colnames(data), 
+                 Frequency = colSums(is.na(assay(data, "protein_directlfq"))),
+                 condition = data$condition_label)
+
+#calculate mean
+mean_df <- df %>%
+  group_by(condition) %>%
+  summarise(mean_protein_number = mean(Frequency))
+
+#desired order
+desired_order <- c("Female PC Fed", "Female PC Fast", 
+                   "Female PP Fed", "Female PP Fast", 
+                   "Male PC Fed", "Male PC Fast", 
+                   "Male PP Fed", "Male PP Fast")
+df$condition <- factor(df$condition, levels = desired_order)
+
+
+plot <- ggplot(df, aes(x = as.factor(condition), y = Frequency)) +
+  geom_bar(stat = "summary", aes(fill = condition), fun = "mean") +  # Use condition for fill
+  geom_jitter(width = 0.4, size = 3, alpha = 1) +
+  stat_summary(fun = "mean", geom = "text", aes(label = round(..y.., 0)), vjust = -3.8) +
+  labs(x = "", y = "Protein Number") +
+  scale_fill_manual(values = c("#e60049", "#0bb4ff", "#00bfa0", "#e6d800", "#9b19f5", "#ffa300", "#dc0ab4", "#b3d4ff")) + 
+  theme_classic() +
+  theme(text = element_text(family = "Arial"),
+        legend.position = "right", axis.text.x = element_text(size = 10, angle = 90, hjust = 1))+
+  ylim(0, 800)
+
+ggsave("quality_control/missing_values.png", plot = plot, width = 6, height = 5, dpi = 300)
+```
+
+remove proteins that don't have 3 biological replicates in at least one group
+```{r}
+protein_directlfq <- assay(data, "protein_directlfq")
+conditions <- data$condition
+
+# Initialize a logical vector to track proteins that meet the condition
+keep_proteins <- apply(protein_directlfq, 1, function(protein_values) {
+  # For each condition, check if there are at least 3 non-NA values
+  any(sapply(unique(conditions), function(cond) {
+    sum(!is.na(protein_values[conditions == cond])) >= 3
+  }))
+})
+
+
+# Subset the SummarizedExperiment object to keep only the proteins that meet the criterion
+data_filter <- data[keep_proteins, ]
+```
+
+graph of missing values after filtering
+```{r}
+df <- data.frame(Sample = colnames(data_filter), 
+                 Frequency = colSums(is.na(assay(data_filter, "protein_directlfq"))),
+                 condition = data_filter$condition_label)
+
+#calculate mean
+mean_df <- df %>%
+  group_by(condition) %>%
+  summarise(mean_protein_number = mean(Frequency))
+
+#desired order
+desired_order <- c("Female PC Fed", "Female PC Fast", 
+                   "Female PP Fed", "Female PP Fast", 
+                   "Male PC Fed", "Male PC Fast", 
+                   "Male PP Fed", "Male PP Fast")
+df$condition <- factor(df$condition, levels = desired_order)
+
+
+plot <- ggplot(df, aes(x = as.factor(condition), y = Frequency)) +
+  geom_bar(stat = "summary", aes(fill = condition), fun = "mean") +  # Use condition for fill
+  geom_jitter(width = 0.4, size = 3, alpha = 1) +
+  stat_summary(fun = "mean", geom = "text", aes(label = round(..y.., 0)), vjust = -3.8) +
+  labs(x = "", y = "Protein Number") +
+  scale_fill_manual(values = c("#e60049", "#0bb4ff", "#00bfa0", "#e6d800", "#9b19f5", "#ffa300", "#dc0ab4", "#b3d4ff")) + 
+  theme_classic() +
+  theme(text = element_text(family = "Arial"),
+        legend.position = "right", axis.text.x = element_text(size = 10, angle = 90, hjust = 1))+
+  ylim(0, 800)
+
+ggsave("quality_control/missing_values_filtered.png", plot = plot, width = 6, height = 5, dpi = 300)
+```
+
+Correlation analysis
+```{r}
+df <- log2(assay(data_filter, "protein_directlfq"))
+
+png("quality_control/correlation_chart.png", width = 1600, height = 1600)
+chart.Correlation(df, histogram=TRUE, pch=19)
+dev.off()
+```
+Save object
+```{r}
+saveRDS(data_filter, "data_filter.RDS")
+```
+
+
+#                                   Normalization                               
+
+## MaxLFQ
+- This is already protein_directlfq and RT-dependent normalized
+- There should be no need for median centering
+
+
+#                             Log2 Transformation                               
+
+make folder
+```{r}
+dir.create("normalization_log2_imputation")
+```
+
+
+Histogram of intensities before log2
+```{r}
+df <- assay(data_filter, "protein_directlfq")
+
+df <- df %>%
+  pivot_longer(cols = everything(), names_to = "Sample", values_to = "Intensity")
+
+plot <- ggplot(df, aes(x = Intensity)) +
+  geom_histogram() +
+  facet_wrap(~ Sample, scales = "free") +  
+  labs(
+    x = "Intensity",
+    y = "Percentage (%)"
+  ) +
+  theme_classic()
+
+ggsave("normalization_log2_imputation/histograms_before_log2.png", plot = plot, width = 15, height = 15, dpi = 300)
+```
+
+Histogram of intensities after log2
+```{r}
+df <- log2(assay(data_filter, "protein_directlfq"))
+
+df <- df %>%
+  pivot_longer(cols = everything(), names_to = "Sample", values_to = "Intensity")
+
+plot <- ggplot(df, aes(x = Intensity)) +
+  geom_histogram() +
+  facet_wrap(~ Sample, scales = "free") +  
+  labs(
+    x = "Intensity",
+    y = "Percentage (%)"
+  ) +
+  theme_classic()
+
+ggsave("normalization_log2_imputation/histograms_after_log2.png", plot = plot, width = 10, height = 10, dpi = 300)
+```
+
+log2 normalization
+```{r}
+assays(data_filter)[["protein_directlfq_log2"]] <-  log2(assay(data_filter, "protein_directlfq"))
+```
+
+
+violin plot before log2
+```{r}
+df <- as.data.frame(assay(data_filter, "protein_directlfq")) %>% 
+  rownames_to_column("protein") %>%
+  pivot_longer(
+    cols = -protein,
+    names_to = "sample",
+    values_to = "value") %>%
+  merge(as.data.frame(colData(data_filter)), by.x = "sample", by.y = "row.names")
+
+plot <- ggplot(df, aes(x = sample, y = value, fill = condition_label)) +
+  geom_violin() +
+  theme_classic() +
+  labs(title = "", x = "Sample", y = "Normalized Intensity", fill = "Condition") +
+  scale_fill_manual(values = c(
+    "Female PC Fed" = "#e60049", 
+    "Female PC Fast" = "#0bb4ff", 
+    "Female PP Fed" = "#00bfa0", 
+    "Female PP Fast" = "#e6d800", 
+    "Male PC Fed" = "#9b19f5", 
+    "Male PC Fast" = "#ffa300", 
+    "Male PP Fed" = "#dc0ab4", 
+    "Male PP Fast" = "#b3d4ff"
+  ))+
+  theme(text = element_text(family = "Arial"),
+        legend.position = "right", axis.text.x = element_text(size = 10, angle = 90, hjust = 1))
+
+ggsave("normalization_log2_imputation/violin_before_log2.png", plot = plot, width = 15, height = 10, dpi = 300)
+```
+
+violin plot after log2
+```{r}
+df <- as.data.frame(assay(data_filter, "protein_directlfq_log2")) %>% 
+  rownames_to_column("protein") %>%
+  pivot_longer(
+    cols = -protein,
+    names_to = "sample",
+    values_to = "value") %>%
+  merge(as.data.frame(colData(data_filter)), by.x = "sample", by.y = "row.names")
+
+plot <- ggplot(df, aes(x = sample, y = value, fill = condition_label)) +
+  geom_violin() +
+  stat_summary(fun = mean, geom = "point", size = 2, color = "black", shape = 18) +
+  stat_summary(fun.data = mean_sdl, geom = "errorbar", width = 0.2, color = "black")+
+  theme_classic() +
+  labs(title = "", x = "Sample", y = "Normalized Intensity", fill = "Condition") +
+  scale_fill_manual(values = c(
+    "Female PC Fed" = "#e60049", 
+    "Female PC Fast" = "#0bb4ff", 
+    "Female PP Fed" = "#00bfa0", 
+    "Female PP Fast" = "#e6d800", 
+    "Male PC Fed" = "#9b19f5", 
+    "Male PC Fast" = "#ffa300", 
+    "Male PP Fed" = "#dc0ab4", 
+    "Male PP Fast" = "#b3d4ff"
+  ))+
+  theme(text = element_text(family = "Arial"),
+        legend.position = "right", axis.text.x = element_text(size = 10, angle = 90, hjust = 1))
+
+ggsave("normalization_log2_imputation/violin_after_log2.png", plot = plot, width = 15, height = 10, dpi = 300)
+```
+
+
+
+
+ 
+#                                Imputation                                     
+
+MinDet Imputation
+https://www.nature.com/articles/s41467-024-47899-w 
+```{r}
+df <- as.matrix(assays(data_filter)[["protein_directlfq_log2"]])
+
+# Create an MSnSet object
+msnset <- MSnSet(exprs = df)
+
+# Perform MinDet imputation
+msnset_imputed <- impute(msnset, method = "MinDet")
+
+# Convert the imputed MSnSet object back to a dataframe
+df <- as.data.frame(exprs(msnset_imputed))
+
+#add to data_filter
+assays(data_filter)[["protein_directlfq_log2_impute_MinDet"]] <- df
+```
+
+Calculate which proteins were imputed and on what bio_replicate
+```{r}
+df <- is.na(assay(data_filter, "protein_directlfq_log2")) & !is.na(assay(data_filter, "protein_directlfq_log2_impute_MinDet"))
+df <- df*1
+
+df <- as.data.frame(df)
+
+assays(data_filter)[["imputed_values"]] <- df
+```
+
+
+missing values after imputation MinDet
+```{r}
+# number of missing values
+df <- data.frame(Sample = colnames(data_filter), 
+                 Frequency = colSums(is.na(assay(data_filter, "protein_directlfq_log2_impute_MinDet"))))
+
+plot <- ggplot(df, aes(x = Frequency, y = Sample)) +
+  geom_bar(stat = "identity", position = position_dodge()) +
+  coord_flip() +
+  theme_classic() +
+  labs(x = "Sample", y = "# Missing values")+
+  theme(text = element_text(family = "Arial"),
+        legend.position = "right", axis.text.x = element_text(size = 10, angle = 90, hjust = 1))
+
+ggsave("normalization_log2_imputation/missing_values_after_MinDet_imputation.png", plot = plot, width = 6, height = 4, dpi = 300)
+```
+
+
+violin after imputation with MinDet
+```{r}
+df <- as.data.frame(assay(data_filter, "protein_directlfq_log2_impute_MinDet")) %>% 
+  rownames_to_column("protein") %>%
+  pivot_longer(
+    cols = -protein,
+    names_to = "sample",
+    values_to = "value") %>%
+  merge(as.data.frame(colData(data_filter)), by.x = "sample", by.y = "row.names")
+
+plot <- ggplot(df, aes(x = sample, y = value, fill = condition_label)) +
+  geom_violin() +
+  stat_summary(fun = mean, geom = "point", size = 2, color = "black", shape = 18) +
+  stat_summary(fun.data = mean_sdl, geom = "errorbar", width = 0.2, color = "black")+
+  theme_classic() +
+  labs(title = "", x = "Sample", y = "Normalized Log2(genes.maxlqf)", fill = "Condition")+
+  scale_fill_manual(values = c(
+    "Female PC Fed" = "#e60049", 
+    "Female PC Fast" = "#0bb4ff", 
+    "Female PP Fed" = "#00bfa0", 
+    "Female PP Fast" = "#e6d800", 
+    "Male PC Fed" = "#9b19f5", 
+    "Male PC Fast" = "#ffa300", 
+    "Male PP Fed" = "#dc0ab4", 
+    "Male PP Fast" = "#b3d4ff"
+  ))+
+  theme(text = element_text(family = "Arial"),
+        legend.position = "right", axis.text.x = element_text(size = 10, angle = 90, hjust = 1))
+
+ggsave("normalization_log2_imputation/violin_plot_after_MinDet_imputation.png", plot = plot, width = 10, height = 6, dpi = 300)
+```
+
+
+transforming data for graphs of imputated values
+```{r}
+#make a df proteins that are imputed
+df <- assays(data_filter)[["imputed_values"]]
+
+#sum the imputed values
+df$sum <- rowSums(df, na.rm = TRUE)
+
+#remove all rows where df is equal to zero
+df <- df[df$sum != 0, ]
+
+#remove sum column
+df$sum <- NULL
+
+#subset imputed values by df above
+imputed_values <- assays(data_filter)[["protein_directlfq_log2_impute_MinDet"]]
+imputed_values <- imputed_values[rownames(imputed_values) %in% rownames(df), ]
+
+#undo the log2
+imputed_values <- 2^imputed_values
+
+# Add a row identifier for proteins
+imputed_values$Protein <- rownames(imputed_values)
+df$Protein <- rownames(df)
+
+# Reshape `imputed_values` to long format
+log_intensities_long <- melt(imputed_values, id.vars = "Protein", 
+                             variable.name = "Sample", value.name = "LogIntensity")
+
+# Reshape `df` (imputation status) to long format
+imputation_status_long <- melt(df, id.vars = "Protein", 
+                               variable.name = "Sample", value.name = "ImputationStatus")
+
+# Merge the two dataframes
+plot_data <- merge(log_intensities_long, imputation_status_long, by = c("Protein", "Sample"))
+
+# Add condition information
+plot_data$Condition <- gsub("[0-9]+$", "", plot_data$Sample) 
+```
+
+make imputed plots
+```{r}
+# Define color palette for conditions
+condition_colors <- c("F0hPC" = "blue", "F0hPP" = "red", "F24hPC" = "green", 
+                      "F24hPP" = "purple", "M0hPC" = "orange", "M0hPP" = "cyan", 
+                      "M24hPC" = "brown", "M24hPP" = "pink")
+
+generate_plot <- function(protein_name) {
+  data <- subset(plot_data, Protein == protein_name)
+  
+  ggplot(data, aes(x = Condition, y = LogIntensity)) +
+    # Bar plot for mean LogIntensity by condition
+    stat_summary(fun = "mean", geom = "bar", aes(fill = Condition), color = "black", width = 0.6) +
+    scale_fill_manual(values = condition_colors) +
+    
+    # Individual points
+    geom_point(aes(shape = factor(ImputationStatus)), color = "black", size = 3, 
+               position = position_jitter(width = 0.2, height = 0)) +
+    scale_shape_manual(values = c("0" = 16, "1" = 15), 
+                       labels = c("Not Imputed", "Imputed")) +
+    
+    # Aesthetic settings
+    labs(title = paste("Protein:", protein_name), x = "Condition", y = "Log Intensity") +
+    theme_minimal() +
+    theme(legend.position = "top")
+}
+
+
+pdf("Protein_Barplots.pdf", width = 10, height = 6)
+
+# Loop over all proteins and generate plots
+for (protein in unique(plot_data$Protein)) {
+  plot <- generate_plot(protein)
+  print(plot)  # Add the plot to the PDF
+}
+
+# Close the PDF file
+dev.off()
+```
+
+
+
+protein log intensity graph with imputation
+```{r}
+df <- as.data.frame(assay(data_filter, "protein_directlfq_log2_impute_MinDet"))
+df$average <- rowMeans(df, na.rm = TRUE)
+df$rank <- rank(-df$average, ties.method = "first")
+
+
+df_impute <- as.data.frame(assay(data_filter, "imputed_values"))
+df_impute$sum <- rowSums(df_impute, na.rm = TRUE)
+
+#add the number of imputed values to df
+df$sum <- df_impute$sum[match(rownames(df), rownames(df_impute))]
+
+plot <- ggplot(df, aes(x = rank, y = average, color = sum)) +
+  geom_point() +
+  labs(x = "Rank", y = "Average Log2 Protein Intensity") +
+  scale_color_gradient2(low = "black", mid = "gray", high = "red", midpoint = 0, na.value = "black") +
+  theme_classic() +
+  theme(text = element_text(family = "Arial"))
+
+ggsave("normalization_log2_imputation/log2_intensity_vs_rank_imputed.png", plot = plot, width = 20, height = 6, dpi = 300)
+```
+
+protein log intensity graph with imputation zoom in
+```{r}
+df <- as.data.frame(assay(data_filter, "protein_directlfq_log2_impute_MinDet"))
+df$average <- rowMeans(df, na.rm = TRUE)
+df$rank <- rank(-df$average, ties.method = "first")
+
+
+df_impute <- as.data.frame(assay(data_filter, "imputed_values"))
+df_impute$sum <- rowSums(df_impute, na.rm = TRUE)
+
+#add the number of imputed values to df
+df$sum <- df_impute$sum[match(rownames(df), rownames(df_impute))]
+
+#filter df rank
+df <- df[df$rank >= 3500 & df$rank <= 5364, ]
+
+plot <- ggplot(df, aes(x = rank, y = average, color = sum)) +
+  geom_point() +
+  labs(x = "Rank", y = "Average Log2 Protein Intensity") +
+  scale_color_gradient2(low = "black", mid = "gray", high = "red", midpoint = 0) +
+  theme_classic() +
+  theme(text = element_text(family = "Arial"))
+
+ggsave("normalization_log2_imputation/log2_intensity_vs_rank_imputed_zoom.png", plot = plot, width = 8, height = 6, dpi = 300)
+```
+
+
+
+
+#                                     PCA                                       
+
+make directory
+```{r}
+dir.create("PCA_publication")
+```
+
+custom colors
+```{r}
+custom_colors <- c(
+  "PC Fed" = "#5473ff", 
+  "PC Fast" = "#72c3fd", 
+  "PP Fed" = "#fe715e", 
+  "PP Fast" = "#f8b9b2")
+```
+
+top 500 most variable proteins
+```{r}
+df <- as.data.frame(assay(data_filter, "protein_directlfq_log2_impute_MinDet"))
+
+df$variance <- apply(df[, 1:24], 1, var)
+
+df <- df[order(df$variance, decreasing = TRUE), ]
+
+# Select the top 500 rows based on the variance
+df <- df[1:500, ]
+
+#select only the log2 data
+df <- df[, 1:24]
+
+pca_result <- prcomp(t(df), scale. = TRUE)
+
+#how much variation for PC1 and PC2
+variance_explained <- summary(pca_result)$importance[2, 1:3] * 100
+
+#get the results from the PCA
+pca_data <- as.data.frame(pca_result$x[, 1:3])
+
+#label the PCA data with idenifiers from sample_table
+pca_data$sex <- sample_table$sex
+pca_data$zone <- sample_table$zone
+pca_data$fed_state <- sample_table$fed_state
+
+pca_data <- pca_data %>%
+  mutate(zone_fed_state = paste(zone, fed_state, sep = " "))
+
+pca_data$zone_fed_state <- factor(pca_data$zone_fed_state, 
+                                    levels = names(custom_colors))
+
+pca_data <- pca_data %>%
+  mutate(sex_symbol = ifelse(sex == "Male", "\u2642", "\u2640"))
+
+# Plot with sex symbols as shapes
+plot <- ggplot(pca_data, aes(x = PC1, y = PC2, color = zone_fed_state)) +
+  geom_text(aes(label = sex_symbol), size = 12, alpha = 1, family = "Arial") +
+  labs(x = "PC1 (22.59%)", y = "PC2 (18.58%)", color = "Condition") +
+  theme_classic() +
+  scale_color_manual(values = custom_colors) +
+  theme(text = element_text(family = "Arial"))
+
+ggsave("PCA_publication/proteomics_PC1_PC2_500.png", plot = plot, width = 8, height = 7, dpi = 300)
+
+#PC1 vs PC3
+plot <- ggplot(pca_data, aes(x = PC1, y = PC3, color = zone_fed_state)) +
+  geom_text(aes(label = sex_symbol), size = 12, alpha = 1, family = "Arial") +
+  labs(x = "PC1 (22.59%)", y = "PC3 (7.59%)", color = "Condition") +
+  theme_classic()+
+  scale_color_manual(values = custom_colors)+
+  theme(text = element_text(family = "Arial"))
+
+ggsave("PCA_publication/proteomics_PC1_PC3_500.png", plot = plot, width = 8, height = 7, dpi = 300)
+```
+
+
+top 10% most variable proteins (559 proteins)
+```{r}
+df <- as.data.frame(assay(data_filter, "protein_directlfq_log2_impute_MinDet"))
+
+df$variance <- apply(df[, 1:24], 1, var)
+
+df <- df[order(df$variance, decreasing = TRUE), ]
+
+# Select the top 500 rows based on the variance
+df <- df[1:559, ]
+
+#select only the log2 data
+df <- df[, 1:24]
+
+pca_result <- prcomp(t(df), scale. = TRUE)
+
+#how much variation for PC1 and PC2
+variance_explained <- summary(pca_result)$importance[2, 1:3] * 100
+
+#get the results from the PCA
+pca_data <- as.data.frame(pca_result$x[, 1:3])
+
+#label the PCA data with idenifiers from sample_table
+pca_data$sex <- sample_table$sex
+pca_data$zone <- sample_table$zone
+pca_data$fed_state <- sample_table$fed_state
+
+pca_data <- pca_data %>%
+  mutate(zone_fed_state = paste(zone, fed_state, sep = " "))
+
+pca_data$zone_fed_state <- factor(pca_data$zone_fed_state, 
+                                    levels = names(custom_colors))
+
+pca_data <- pca_data %>%
+  mutate(sex_symbol = ifelse(sex == "Male", "\u2642", "\u2640"))
+
+# Plot with sex symbols as shapes
+plot <- ggplot(pca_data, aes(x = PC1, y = PC2, color = zone_fed_state)) +
+  geom_text(aes(label = sex_symbol), size = 12, alpha = 1, family = "Arial") +
+  labs(x = "PC1 (22.45%)", y = "PC2 (17.91%)", color = "Condition") +
+  theme_classic() +
+  scale_color_manual(values = custom_colors) +
+  theme(text = element_text(family = "Arial"))
+
+ggsave("PCA_publication/proteomics_PC1_PC2_559.png", plot = plot, width = 8, height = 7, dpi = 300)
+
+#PC1 vs PC3
+plot <- ggplot(pca_data, aes(x = PC1, y = PC3, color = zone_fed_state)) +
+  geom_text(aes(label = sex_symbol), size = 12, alpha = 1, family = "Arial") +
+  labs(x = "PC1 (22.45%)", y = "PC3 (7.57%)", color = "Condition") +
+  theme_classic()+
+  scale_color_manual(values = custom_colors)+
+  theme(text = element_text(family = "Arial"))
+
+ggsave("PCA_publication/proteomics_PC1_PC3_559.png", plot = plot, width = 8, height = 7, dpi = 300)
+```
+
+top 3% most variable proteins (167 proteins)
+```{r}
+df <- as.data.frame(assay(data_filter, "protein_directlfq_log2_impute_MinDet"))
+
+df$variance <- apply(df[, 1:24], 1, var)
+
+df <- df[order(df$variance, decreasing = TRUE), ]
+
+# Select the top 500 rows based on the variance
+df <- df[1:167, ]
+
+#select only the log2 data
+df <- df[, 1:24]
+
+pca_result <- prcomp(t(df), scale. = TRUE)
+
+#how much variation for PC1 and PC2
+variance_explained <- summary(pca_result)$importance[2, 1:3] * 100
+
+#get the results from the PCA
+pca_data <- as.data.frame(pca_result$x[, 1:3])
+
+#label the PCA data with idenifiers from sample_table
+pca_data$sex <- sample_table$sex
+pca_data$zone <- sample_table$zone
+pca_data$fed_state <- sample_table$fed_state
+
+pca_data <- pca_data %>%
+  mutate(zone_fed_state = paste(zone, fed_state, sep = " "))
+
+pca_data$zone_fed_state <- factor(pca_data$zone_fed_state, 
+                                    levels = names(custom_colors))
+
+pca_data <- pca_data %>%
+  mutate(sex_symbol = ifelse(sex == "Male", "\u2642", "\u2640"))
+
+# Plot with sex symbols as shapes
+plot <- ggplot(pca_data, aes(x = PC1, y = PC2, color = zone_fed_state)) +
+  geom_text(aes(label = sex_symbol), size = 12, alpha = 1, family = "Arial") +
+  labs(x = "PC1 (24.52%)", y = "PC2 (22.74%)", color = "Condition") +
+  theme_classic() +
+  scale_color_manual(values = custom_colors) +
+  theme(text = element_text(family = "Arial"))
+
+ggsave("PCA_publication/proteomics_PC1_PC2_167.png", plot = plot, width = 8, height = 7, dpi = 300)
+
+#PC1 vs PC3
+plot <- ggplot(pca_data, aes(x = PC1, y = PC3, color = zone_fed_state)) +
+  geom_text(aes(label = sex_symbol), size = 12, alpha = 1, family = "Arial") +
+  labs(x = "PC1 (24.52%)", y = "PC3 (6.67%)", color = "Condition") +
+  theme_classic()+
+  scale_color_manual(values = custom_colors)+
+  theme(text = element_text(family = "Arial"))
+
+ggsave("PCA_publication/proteomics_PC1_PC3_167.png", plot = plot, width = 8, height = 7, dpi = 300)
+```
+
+
+
+top 3% most variable proteins (167 proteins) points only
+```{r}
+df <- as.data.frame(assay(data_filter, "protein_directlfq_log2_impute_MinDet"))
+
+df$variance <- apply(df[, 1:24], 1, var)
+
+df <- df[order(df$variance, decreasing = TRUE), ]
+
+# Select the top 500 rows based on the variance
+df <- df[1:167, ]
+
+#select only the log2 data
+df <- df[, 1:24]
+
+pca_result <- prcomp(t(df), scale. = TRUE)
+
+#how much variation for PC1 and PC2
+variance_explained <- summary(pca_result)$importance[2, 1:3] * 100
+
+#get the results from the PCA
+pca_data <- as.data.frame(pca_result$x[, 1:3])
+
+#label the PCA data with idenifiers from sample_table
+pca_data$sex <- sample_table$sex
+pca_data$zone <- sample_table$zone
+pca_data$fed_state <- sample_table$fed_state
+
+pca_data <- pca_data %>%
+  mutate(sex_zone_fed_state = paste(sex, zone, fed_state, sep = " "))
+
+# Plot with sex symbols as shapes
+plot <- ggplot(pca_data, aes(x = PC1, y = PC2, color = sex_zone_fed_state)) +
+  geom_point()+
+  labs(x = "PC1 (24.52%)", y = "PC2 (22.74%)", color = "Condition") +
+  theme_classic() +
+  theme(text = element_text(family = "Arial"))
+
+ggsave("PCA_publication/proteomics_PC1_PC2_167_points.png", plot = plot, width = 8, height = 7, dpi = 300)
+
+#PC1 vs PC3
+plot <- ggplot(pca_data, aes(x = PC1, y = PC3, color = sex_zone_fed_state)) +
+  geom_point() +
+  labs(x = "PC1 (24.52%)", y = "PC3 (6.67%)", color = "Condition") +
+  theme_classic()+
+  theme(text = element_text(family = "Arial"))
+
+ggsave("PCA_publication/proteomics_PC1_PC3_167_points.png", plot = plot, width = 8, height = 7, dpi = 300)
+```
+
+
+#                     Li RNA-seq PCA                                            
+variance explained: PC1 = 32.37%, PC2 = 29.50%, PC3 = 22.74%
+```{r}
+#load data
+RNA_pca_data <- read.csv(file = "required_files/RNAseq_pca3Ddata.csv", row.names = 1)
+
+RNA_pca_data$zone_fed_state <- factor(RNA_pca_data$zone_fed_state, 
+                                    levels = names(custom_colors))
+
+RNA_pca_data <- RNA_pca_data %>%
+  mutate(sex_symbol = ifelse(sex == "Male", "\u2642", "\u2640"))
+
+# Plot with sex symbols as shapes
+plot <- ggplot(RNA_pca_data, aes(x = PC1, y = PC2, color = zone_fed_state)) +
+  geom_text(aes(label = sex_symbol), size = 12, alpha = 1, family = "Arial") +
+  labs(x = "PC1 (32.37%)", y = "PC2 (29.50%)", color = "Condition") +
+  theme_classic() +
+  scale_color_manual(values = custom_colors) +
+  theme(text = element_text(family = "Arial"))
+
+ggsave("PCA_publication/RNAseq_PC1_PC2_500.png", plot = plot, width = 8, height = 7, dpi = 300)
+
+#PC1 vs PC3
+plot <- ggplot(RNA_pca_data, aes(x = PC1, y = PC3, color = zone_fed_state)) +
+  geom_text(aes(label = sex_symbol), size = 12, alpha = 1, family = "Arial") +
+  labs(x = "PC1 32.37%)", y = "PC3 (22.74%)", color = "Condition") +
+  theme_classic()+
+  scale_color_manual(values = custom_colors)+
+  theme(text = element_text(family = "Arial"))
+
+ggsave("PCA_publication/RNAseq_PC1_PC3_500.png", plot = plot, width = 8, height = 7, dpi = 300)
+```
+
+
+
+#                 Differential abundance analysis with limma                    
+found to work best with DIA DIA-NN data:
+Optimizing differential expression analysis for proteomics data via high-performing rules and ensemble inference
+https://www.nature.com/articles/s41467-024-47899-w
+
+
+
+create a sample information dataframe
+```{r}
+genes_data <- assay(data_filter, "protein_directlfq_log2_impute_MinDet")
+
+conditions <- c(rep("F0hPC", 3), rep("F0hPP", 3), rep("F24hPC", 3), rep("F24hPP", 3),
+                rep("M0hPC", 3), rep("M0hPP", 3), rep("M24hPC", 3), rep("M24hPP", 3))
+
+# Create a sample information dataframe
+sample_info <- data.frame(
+  Sample = colnames(genes_data),
+  Condition = conditions)
+```
+
+limma analysis
+```{r}
+#create design matrix
+design <- model.matrix(~ 0 + Condition, data = sample_info)
+
+# Assign appropriate column names to the design matrix
+condition_names <- c("F0hPC", "F0hPP", "F24hPC", "F24hPP", "M0hPC", "M0hPP", "M24hPC", "M24hPP")
+colnames(design) <- condition_names
+
+#fit the linear model
+fit <- lmFit(genes_data, design)
+
+#define the contrast matrix
+contrasts <- makeContrasts(
+  F0hPC_vs_M0hPC = F0hPC - M0hPC,
+  F0hPP_vs_M0hPP = F0hPP - M0hPP,
+  F24hPC_vs_M24hPC = F24hPC - M24hPC,
+  F24hPP_vs_M24hPP = F24hPP - M24hPP,
+  F0hPC_vs_F0hPP = F0hPC - F0hPP,
+  F24hPC_vs_F24hPP = F24hPC - F24hPP,
+  M0hPC_vs_M0hPP = M0hPC - M0hPP,
+  M24hPC_vs_M24hPP = M24hPC - M24hPP,
+  F0hPC_vs_F24hPC = F0hPC - F24hPC,
+  F0hPP_vs_F24hPP = F0hPP - F24hPP,
+  M0hPC_vs_M24hPC = M0hPC - M24hPC,
+  M0hPP_vs_M24hPP = M0hPP - M24hPP,
+  levels = design
+)
+
+# Apply the contrasts to the fit object
+fit2 <- contrasts.fit(fit, contrasts)
+
+# Empirical Bayes moderation
+fit2 <- eBayes(fit2)
+```
+
+Extract the comparisons and merge them together
+```{r}
+F0hPC_vs_M0hPC <- topTable(fit2, coef = "F0hPC_vs_M0hPC", number = Inf)
+colnames(F0hPC_vs_M0hPC) <- paste("F0hPC_vs_M0hPC", colnames(F0hPC_vs_M0hPC), sep = "_")
+
+F0hPP_vs_M0hPP <- topTable(fit2, coef = "F0hPP_vs_M0hPP", number = Inf)
+colnames(F0hPP_vs_M0hPP) <- paste("F0hPP_vs_M0hPP", colnames(F0hPP_vs_M0hPP), sep = "_")
+
+F24hPC_vs_M24hPC <- topTable(fit2, coef = "F24hPC_vs_M24hPC", number = Inf)
+colnames(F24hPC_vs_M24hPC) <- paste("F24hPC_vs_M24hPC", colnames(F24hPC_vs_M24hPC), sep = "_")
+
+F24hPP_vs_M24hPP <- topTable(fit2, coef = "F24hPP_vs_M24hPP", number = Inf)
+colnames(F24hPP_vs_M24hPP) <- paste("F24hPP_vs_M24hPP", colnames(F24hPP_vs_M24hPP), sep = "_")
+
+F0hPC_vs_F0hPP <- topTable(fit2, coef = "F0hPC_vs_F0hPP", number = Inf)
+colnames(F0hPC_vs_F0hPP) <- paste("F0hPC_vs_F0hPP", colnames(F0hPC_vs_F0hPP), sep = "_")
+
+F24hPC_vs_F24hPP <- topTable(fit2, coef = "F24hPC_vs_F24hPP", number = Inf)
+colnames(F24hPC_vs_F24hPP) <- paste("F24hPC_vs_F24hPP", colnames(F24hPC_vs_F24hPP), sep = "_")
+
+M0hPC_vs_M0hPP <- topTable(fit2, coef = "M0hPC_vs_M0hPP", number = Inf)
+colnames(M0hPC_vs_M0hPP) <- paste("M0hPC_vs_M0hPP", colnames(M0hPC_vs_M0hPP), sep = "_")
+
+M24hPC_vs_M24hPP <- topTable(fit2, coef = "M24hPC_vs_M24hPP", number = Inf)
+colnames(M24hPC_vs_M24hPP) <- paste("M24hPC_vs_M24hPP", colnames(M24hPC_vs_M24hPP), sep = "_")
+
+F0hPC_vs_F24hPC <- topTable(fit2, coef = "F0hPC_vs_F24hPC", number = Inf)
+colnames(F0hPC_vs_F24hPC) <- paste("F0hPC_vs_F24hPC", colnames(F0hPC_vs_F24hPC), sep = "_")
+
+F0hPP_vs_F24hPP <- topTable(fit2, coef = "F0hPP_vs_F24hPP", number = Inf)
+colnames(F0hPP_vs_F24hPP) <- paste("F0hPP_vs_F24hPP", colnames(F0hPP_vs_F24hPP), sep = "_")
+
+M0hPC_vs_M24hPC <- topTable(fit2, coef = "M0hPC_vs_M24hPC", number = Inf)
+colnames(M0hPC_vs_M24hPC) <- paste("M0hPC_vs_M24hPC", colnames(M0hPC_vs_M24hPC), sep = "_")
+
+M0hPP_vs_M24hPP <- topTable(fit2, coef = "M0hPP_vs_M24hPP", number = Inf)
+colnames(M0hPP_vs_M24hPP) <- paste("M0hPP_vs_M24hPP", colnames(M0hPP_vs_M24hPP), sep = "_")
+```
+
+manual log2FC calculation
+```{r}
+# Create an empty dataframe for storing the condition means with row names from genes_data
+condition_means <- data.frame(matrix(ncol = 8, nrow = nrow(genes_data)))
+rownames(condition_means) <- rownames(genes_data)  # Set row names to match genes_data
+
+# Assign column names for condition_means
+colnames(condition_means) <- c("F0hPC", "F0hPP", "F24hPC", "F24hPP", "M0hPC", "M0hPP", "M24hPC", "M24hPP")
+
+# Define the condition names (for easier reference in the loop)
+conditions <- colnames(condition_means)
+
+# Loop over the conditions and calculate the mean for each set of 3 columns
+for (i in seq_along(conditions)) {
+  # Get the indices for the three columns for the current condition
+  col_indices <- ((i - 1) * 3 + 1):(i * 3)
+  
+  # Calculate the mean for the selected columns and add it to the condition_means dataframe
+  condition_means[[conditions[i]]] <- rowMeans(genes_data[, col_indices])
+}
+
+#give the columns more detailed names
+colnames(condition_means) <- paste0(colnames(condition_means), "_mean_manual")
+
+
+# Define the comparisons as a named list with the column pairs for subtraction
+comparisons <- list(
+  F0hPC_vs_M0hPC = c("F0hPC_mean_manual", "M0hPC_mean_manual"),
+  F0hPP_vs_M0hPP = c("F0hPP_mean_manual", "M0hPP_mean_manual"),
+  F24hPC_vs_M24hPC = c("F24hPC_mean_manual", "M24hPC_mean_manual"),
+  F24hPP_vs_M24hPP = c("F24hPP_mean_manual", "M24hPP_mean_manual"),
+  F0hPC_vs_F0hPP = c("F0hPC_mean_manual", "F0hPP_mean_manual"),
+  F24hPC_vs_F24hPP = c("F24hPC_mean_manual", "F24hPP_mean_manual"),
+  M0hPC_vs_M0hPP = c("M0hPC_mean_manual", "M0hPP_mean_manual"),
+  M24hPC_vs_M24hPP = c("M24hPC_mean_manual", "M24hPP_mean_manual"),
+  F0hPC_vs_F24hPC = c("F0hPC_mean_manual", "F24hPC_mean_manual"),
+  F0hPP_vs_F24hPP = c("F0hPP_mean_manual", "F24hPP_mean_manual"),
+  M0hPC_vs_M24hPC = c("M0hPC_mean_manual", "M24hPC_mean_manual"),
+  M0hPP_vs_M24hPP = c("M0hPP_mean_manual", "M24hPP_mean_manual")
+)
+
+
+# Loop over the comparisons and calculate the differences, adding each as a new column in condition_means
+for (comparison in names(comparisons)) {
+  cols <- comparisons[[comparison]]  # Get the column pair for the current comparison
+  new_col_name <- paste0(comparison, "_logFC_manual")  # Create the new column name
+  condition_means[[new_col_name]] <- condition_means[[cols[1]]] - condition_means[[cols[2]]]
+}
+```
+
+attach the raw intensities
+```{r}
+#get the raw intensity data
+raw_intensity <- assay(data_filter, "protein_directlfq")
+
+#add a detailed name to it
+colnames(raw_intensity) <- paste0(colnames(raw_intensity), "_raw_intensities")
+```
+
+
+how many imputations there are per condition
+```{r}
+imputed_avg <- assay(data_filter, "imputed_values")
+
+column_groups <- list(
+  F0hPC = c("F0hPC1", "F0hPC2", "F0hPC3"),
+  F0hPP = c("F0hPP1", "F0hPP2", "F0hPP3"),
+  F24hPC = c("F24hPC1", "F24hPC2", "F24hPC3"),
+  F24hPP = c("F24hPP3", "F24hPP4", "F24hPP5"),
+  M0hPC = c("M0hPC1", "M0hPC3", "M0hPC4"),
+  M0hPP = c("M0hPP1", "M0hPP2", "M0hPP3"),
+  M24hPC = c("M24hPC3", "M24hPC4", "M24hPC5"),
+  M24hPP = c("M24hPP1", "M24hPP3", "M24hPP5")
+)
+
+# Sum the rows for each group and create the new dataframe
+imputed_avg <- as.data.frame(sapply(column_groups, function(cols) rowSums(imputed_avg[cols], na.rm = TRUE)))
+
+#update the column names
+colnames(imputed_avg) <- paste0(colnames(imputed_avg), "_number_imputed_values")
+```
+
+create differential abundance analysis dataframe and save it
+```{r}
+#put all dataframes in the same row order
+genes_data <- genes_data[order(rownames(genes_data)), ]
+F0hPC_vs_M0hPC <- F0hPC_vs_M0hPC[order(rownames(F0hPC_vs_M0hPC)), ]
+F0hPP_vs_M0hPP <- F0hPP_vs_M0hPP[order(rownames(F0hPP_vs_M0hPP)), ]
+F24hPC_vs_M24hPC <- F24hPC_vs_M24hPC[order(rownames(F24hPC_vs_M24hPC)), ]
+F24hPP_vs_M24hPP <- F24hPP_vs_M24hPP[order(rownames(F24hPP_vs_M24hPP)), ]
+F0hPC_vs_F0hPP <- F0hPC_vs_F0hPP[order(rownames(F0hPC_vs_F0hPP)), ]
+F24hPC_vs_F24hPP <- F24hPC_vs_F24hPP[order(rownames(F24hPC_vs_F24hPP)), ]
+M0hPC_vs_M0hPP <- M0hPC_vs_M0hPP[order(rownames(M0hPC_vs_M0hPP)), ]
+M24hPC_vs_M24hPP <- M24hPC_vs_M24hPP[order(rownames(M24hPC_vs_M24hPP)), ]
+F0hPC_vs_F24hPC <- F0hPC_vs_F24hPC[order(rownames(F0hPC_vs_F24hPC)), ]
+F0hPP_vs_F24hPP <- F0hPP_vs_F24hPP[order(rownames(F0hPP_vs_F24hPP)), ]
+M0hPC_vs_M24hPC <- M0hPC_vs_M24hPC[order(rownames(M0hPC_vs_M24hPC)), ]
+M0hPP_vs_M24hPP <- M0hPP_vs_M24hPP[order(rownames(M0hPP_vs_M24hPP)), ]
+condition_means <- condition_means[order(rownames(condition_means)), ]
+raw_intensity <- raw_intensity[order(rownames(raw_intensity)), ]
+imputed_avg <- imputed_avg[order(rownames(imputed_avg)), ]
+
+#check if rownames are all in the same order
+identical(rownames(genes_data), rownames(F0hPC_vs_M0hPC))
+identical(rownames(genes_data), rownames(F0hPP_vs_M0hPP))
+identical(rownames(genes_data), rownames(F24hPC_vs_M24hPC))
+identical(rownames(genes_data), rownames(F24hPP_vs_M24hPP))
+identical(rownames(genes_data), rownames(F0hPC_vs_F0hPP))
+identical(rownames(genes_data), rownames(F24hPC_vs_F24hPP))
+identical(rownames(genes_data), rownames(M0hPC_vs_M0hPP))
+identical(rownames(genes_data), rownames(M24hPC_vs_M24hPP))
+identical(rownames(genes_data), rownames(F0hPC_vs_F24hPC))
+identical(rownames(genes_data), rownames(F0hPP_vs_F24hPP))
+identical(rownames(genes_data), rownames(M0hPC_vs_M24hPC))
+identical(rownames(genes_data), rownames(M0hPP_vs_M24hPP))
+identical(rownames(genes_data), rownames(condition_means))
+identical(rownames(genes_data), rownames(raw_intensity))
+identical(rownames(genes_data), rownames(imputed_avg))
+
+
+differential_abundance_analysis <- genes_data %>%
+  bind_cols(F0hPC_vs_M0hPC) %>%
+  bind_cols(F0hPP_vs_M0hPP) %>%
+  bind_cols(F24hPC_vs_M24hPC) %>%
+  bind_cols(F24hPP_vs_M24hPP) %>%
+  bind_cols(F0hPC_vs_F0hPP) %>%
+  bind_cols(F24hPC_vs_F24hPP) %>%
+  bind_cols(M0hPC_vs_M0hPP) %>%
+  bind_cols(M24hPC_vs_M24hPP) %>%
+  bind_cols(F0hPC_vs_F24hPC) %>%
+  bind_cols(F0hPP_vs_F24hPP) %>%
+  bind_cols(M0hPC_vs_M24hPC) %>%
+  bind_cols(M0hPP_vs_M24hPP) %>%
+  bind_cols(condition_means) %>%
+  bind_cols(raw_intensity) %>%
+  bind_cols(imputed_avg)
+```
+
+Uniprot mapping
+```{r}
+#make a column for the uniprot IDs
+differential_abundance_analysis$uniprot_ID <- rownames(differential_abundance_analysis)
+
+#remove multiple IDs
+differential_abundance_analysis$uniprot_ID <- sub(";.*", "", differential_abundance_analysis$uniprot_ID)
+
+mart <- useMart("ensembl", dataset = "mmusculus_gene_ensembl")
+
+conversion <- getBM(
+    attributes = c("uniprotswissprot", "ensembl_gene_id", "mgi_symbol"), 
+    filters = "uniprotswissprot", 
+    values = differential_abundance_analysis$uniprot_ID, 
+    mart = mart
+)
+
+differential_abundance_analysis <- merge(
+    differential_abundance_analysis, 
+    conversion, 
+    by.x = "uniprot_ID", 
+    by.y = "uniprotswissprot", 
+    all.x = TRUE
+)
+
+
+uniprot_ids <- differential_abundance_analysis$uniprot_ID
+
+writeLines(paste(uniprot_ids, collapse = ","), "uniprot_ids_for_uniprot.txt")
+
+sum(is.na(differential_abundance_analysis$mgi_symbol))
+
+
+write.csv(differential_abundance_analysis, file = "differential_abundance_analysis.csv")
+```
+
+
+
+
