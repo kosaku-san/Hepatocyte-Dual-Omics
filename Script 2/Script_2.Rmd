@@ -1,0 +1,244 @@
+---
+title: "Script 2: ID Mapping"
+author: "Austin Landgraf"
+date: "March 2025"
+output: multiple
+---
+
+
+```{r}
+library(dplyr)
+```
+
+
+```{r}
+protein <- read.csv("script2_required_files/differential_abundance_analysis.csv")
+mrna <- read.csv("script2_required_files/DE_F0hPC_vs_F0hPP.csv")
+
+
+#reads accession column. 5658 accession IDs 
+accession <- protein[,c(2)]
+#finds unique accessions. 5592 unique accession IDs
+accession_unique <- unique(accession)
+
+
+
+#reads ensembl and symbol columns
+#16978
+ensembl_to_symbol_NA <- mrna[, c(1, 8)]
+#Remove NA values
+#16728
+ensembl_to_symbol <- na.omit(ensembl_to_symbol_NA)
+
+#Counts unique Ensembl IDs
+ensembl_unique <- unique(ensembl_to_symbol$gene_ID)
+
+# Count occurrences of "gene_ID" and "symbol"
+gene_ID_counts <- ensembl_to_symbol %>%
+  dplyr::group_by(gene_ID) %>%
+  dplyr::summarise(n = dplyr::n())
+symbol_counts <- ensembl_to_symbol %>%
+  dplyr::group_by(symbol) %>%
+  dplyr::summarise(n = dplyr::n())
+
+# Identify 1:1 mappings for gene_ID and symbol
+#16723
+mrna_one_to_one <- ensembl_to_symbol %>%
+  filter(gene_ID %in% gene_ID_counts$gene_ID[gene_ID_counts$n == 1] & 
+         symbol %in% symbol_counts$symbol[symbol_counts$n == 1])
+
+# Identify "gene_ID" entries mapping to multiple "symbol" entries (1:many)
+#0
+mrna_one_to_many <- ensembl_to_symbol %>%
+  filter(gene_ID %in% gene_ID_counts$gene_ID[gene_ID_counts$n > 1])
+
+# Identify "symbol" entries mapping to multiple "gene_ID" entries (many:1)
+#5
+mrna_many_to_one <- ensembl_to_symbol %>%
+  filter(symbol %in% symbol_counts$symbol[symbol_counts$n > 1])
+
+
+
+ensembl_clean <- mrna_one_to_one$gene_ID
+mrna_symbol_clean <- mrna_one_to_one$symbol
+
+```
+
+
+```{r}
+#Used Uniprot ID mapper to map from "UniProtKB_AC-ID → Gene_Name"
+#5592 unique accessions
+#21 not mapped
+#5571 mapped --> 5595 Gene_Names 
+
+accession2symbol <- read.csv("script2_required_files/UniProtKB_AC-ID → Gene_Name.csv")
+```
+
+```{r}
+# Count occurrences of "From" and "To"
+from_counts <- accession2symbol %>%
+  dplyr::group_by(From) %>%
+  dplyr::summarise(n = dplyr::n())
+
+to_counts <- accession2symbol %>%
+  dplyr::group_by(To) %>%
+  dplyr::summarise(n = dplyr::n())
+
+# Identify 1:1 mappings
+# 5561
+one_to_one <- accession2symbol %>%
+  filter(From %in% from_counts$From[from_counts$n == 1] & 
+         To %in% to_counts$To[to_counts$n == 1])
+
+# Identify "From" entries mapping to multiple "To" entries (1:many)
+# 30
+one_to_many <- accession2symbol %>%
+  filter(From %in% from_counts$From[from_counts$n > 1])
+
+# Identify "To" entries mapping to multiple "From" entries (many:1)
+#4
+many_to_one <- accession2symbol %>%
+  filter(To %in% to_counts$To[to_counts$n > 1])
+
+
+```
+
+
+```{r}
+# Find common elements (shared between protein symbols and mrna symbols)
+#5406
+shared <- intersect(one_to_one$To, mrna_symbol_clean)
+
+# Find elements only in the protein vector
+#155
+protein_only <- setdiff(one_to_one$To, mrna_symbol_clean)
+
+# Find elements only in the mrna vector
+#11317
+mrna_only <- setdiff(mrna_symbol_clean, one_to_one$To)
+
+protein_only_df <- subset(one_to_one, To %in% protein_only)
+
+write.csv(protein_only_df, "protein_only_df.csv")
+
+```
+
+
+```{r}
+#Used Uniprot ID mapper to map the protein_only_df  "UniProtKB_AC-ID → Ensembl"
+#155 unique accessions
+#22 not mapped
+#133 mapped --> 137 Ensembl 
+protein_to_ensembl <- read.csv("script2_required_files/UniProtKB_AC-ID → Ensembl.csv")
+
+# Count occurrences of "From" and "To"
+from_counts <- protein_to_ensembl %>%
+  dplyr::group_by(From) %>%
+  dplyr::summarise(n = dplyr::n())
+
+to_counts <- protein_to_ensembl %>%
+  dplyr::group_by(To) %>%
+  dplyr::summarise(n = dplyr::n())
+
+# Identify 1:1 mappings
+# 129 unique IDs
+protein_one_to_one <- protein_to_ensembl %>%
+  filter(From %in% from_counts$From[from_counts$n == 1] & 
+         To %in% to_counts$To[to_counts$n == 1])
+
+#removes version numbers from ensembl IDs
+protein_one_to_one$To <- sub("\\..*", "", protein_one_to_one$To)
+
+```
+
+
+
+```{r}
+# Find common elements (shared between protein_one_to_one and mrna ensembl IDs)
+#88
+shared2 <- intersect(protein_one_to_one$To, ensembl_clean)
+
+# Find elements only in the protein vector
+#41
+protein_only2 <- setdiff(protein_one_to_one$To, ensembl_clean)
+
+# Find elements only in the mrna vector
+#16635
+mrna_only2 <- setdiff(ensembl_clean, protein_one_to_one$To)
+
+```
+
+
+```{r}
+data1 <- subset(one_to_one, To %in% shared)
+colnames(data1) <- c("uniprot_accession","symbol")
+data2 <- subset(mrna_one_to_one, symbol %in% shared)
+
+df1 <- merge(data1,data2, by = "symbol")
+df1$ensembl_symbol <- df1$symbol
+df1 <- df1[, c(1,2,4,3)]
+colnames(df1) <- c("uniprot_symbol","uniprot_accession","ensembl_symbol","ensembl_id")
+
+
+data3 <- subset(protein_one_to_one, To %in% shared2)
+colnames(data3) <- c("uniprot_accession","gene_ID")
+data4 <- subset(mrna_one_to_one, gene_ID %in% shared2)
+
+df2 <- merge(data3,data4, by = "gene_ID")
+colnames(df2) <- c("ensembl_id","From","ensembl_symbol")
+
+df2 <- merge(df2,one_to_one[, c("From", "To")], by = "From", all.x = TRUE)
+df2 <- df2[, c(4,1,3,2)]
+colnames(df2) <- c("uniprot_symbol","uniprot_accession","ensembl_symbol","ensembl_id")
+
+mapped_data <- rbind(df1,df2)
+
+
+write.csv(mapped_data, "mapped_data.csv", row.names = FALSE, col.names = TRUE)
+
+```
+
+
+
+```{r}
+
+#Attempt at directly mapping Accession to Ensembl
+#Used Uniprot ID mapper to map the protein_only_df  "UniProtKB_AC-ID → Ensembl"
+# 5592 unique accessions
+# 415 not mapped
+# 5177 mapped --> 5245 Ensembl
+
+protein_to_ensembl_direct <- read.csv("script2_required_files/UniProtKB_AC-ID → Ensembl (direct).csv")
+
+# Count occurrences of "From" and "To"
+from_counts <- protein_to_ensembl_direct %>%
+  dplyr::group_by(From) %>%
+  dplyr::summarise(n = dplyr::n())
+
+to_counts <- protein_to_ensembl_direct %>%
+  dplyr::group_by(To) %>%
+  dplyr::summarise(n = dplyr::n())
+
+# Identify 1:1 mappings
+# 5130 unique IDs
+protein_direct_one_to_one <- protein_to_ensembl_direct %>%
+  filter(From %in% from_counts$From[from_counts$n == 1] & 
+         To %in% to_counts$To[to_counts$n == 1])
+
+#removes version numbers from ensembl IDs
+protein_direct_one_to_one$To <- sub("\\..*", "", protein_direct_one_to_one$To)
+
+
+# Find common elements (shared between protein_direct_one_to_one and mrna ensembl IDs)
+#5087
+shared3 <- intersect(protein_direct_one_to_one$To, ensembl_clean)
+
+```
+
+
+
+
+
+
+
+
