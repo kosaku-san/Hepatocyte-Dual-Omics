@@ -1,0 +1,2559 @@
+---
+title: "Script 3: Main and Supplemental Figures"
+author: "Austin Landgraf"
+date: "March 2025"
+output: multiple
+---
+
+```{r}
+library(ggplot2)
+library(UpSetR)
+library(dplyr)
+library(tidyr)
+library(ggrepel)
+library(plyr)
+library(data.table)
+```
+
+```{r}
+#clears global environment before running script
+rm(list = ls())
+```
+
+```{r}
+#Description of comparisons to perform. Each comparison has been given a number. 1-4 are comparisons based on sex (F vs M). 5-8 are based on zone (PC vs PP). 9-12 are based on metabolic state (0h vs 24h) where 0h is fed and 24h is 24h fasted. 
+
+#Sex
+#1 F0hPC_vs_M0hPC
+#2 F0hPP_vs_M0hPP
+#3 F24hPC_vs_M24hPC
+#4 F24hPP_vs_M24hPP
+
+#Zone
+#5 F0hPC_vs_F0hPP
+#6 F24hPC_vs_F24hPP
+#7 M0hPC_vs_M0hPP
+#8 M24hPC_vs_M24hPP
+
+#Metabolism
+#9 F0hPC_vs_F24hPC
+#10 F0hPP_vs_F24hPP
+#11 M0hPC_vs_M24hPC
+#12 M0hPP_vs_M24hPP
+
+unzip("script3_required_files/DESeq2.zip")
+
+RNA_comp1 <- fread("DESeq2/DE_F0hPC_vs_M0hPC.csv", header = TRUE)
+RNA_comp2 <- fread("DESeq2/DE_F0hPP_vs_M0hPP.csv", header = TRUE)
+RNA_comp3 <- fread("DESeq2/DE_F24hPC_vs_M24hPC.csv", header = TRUE)
+RNA_comp4 <- fread("DESeq2/DE_F24hPP_vs_M24hPP.csv", header = TRUE)
+
+RNA_comp5 <- fread("DESeq2/DE_F0hPC_vs_F0hPP.csv", header = TRUE)
+RNA_comp6 <- fread("DESeq2/DE_F24hPC_vs_F24hPP.csv", header = TRUE)
+RNA_comp7 <- fread("DESeq2/DE_M0hPC_vs_M0hPP.csv", header = TRUE)
+RNA_comp8 <- fread("DESeq2/DE_M24hPC_vs_M24hPP.csv", header = TRUE)
+
+RNA_comp9 <- fread("DESeq2/DE_F0hPC_vs_F24hPC.csv", header = TRUE)
+RNA_comp10 <- fread("DESeq2/DE_F0hPP_vs_F24hPP.csv", header = TRUE)
+RNA_comp11 <- fread("DESeq2/DE_M0hPC_vs_M24hPC.csv", header = TRUE)
+RNA_comp12 <- fread("DESeq2/DE_M0hPP_vs_M24hPP.csv", header = TRUE)
+
+
+```
+
+
+```{r}
+protein <- read.csv("script3_required_files/differential_abundance_analysis.csv", header=TRUE)
+```
+
+
+```{r}
+comparisons_to_perform <- list(
+  list(a="F0hPC",b="M0hPC"),
+  list(a="F0hPP",b="M0hPP"),
+  list(a="F24hPC",b="M24hPC"),
+  list(a="F24hPP",b="M24hPP"),
+  
+  list(a="F0hPC",b="F0hPP"),
+  list(a="F24hPC",b="F24hPP"),
+  list(a="M0hPC",b="M0hPP"),
+  list(a="M24hPC",b="M24hPP"),
+  
+  list(a="F0hPC",b="F24hPC"),
+  list(a="F0hPP",b="F24hPP"),
+  list(a="M0hPC",b="M24hPC"),
+  list(a="M0hPP",b="M24hPP")
+)
+
+dir.create("All_Protein_Comparisons")
+
+# Loop through each set of variables
+for (i in 1:length(comparisons_to_perform)) {
+  
+   # Access the current set of variables
+  current_set <- comparisons_to_perform[[i]]
+  
+  # Use the variables from the current set
+  a <- current_set$a
+  b <- current_set$b
+  
+  #Pulls out specific columns from protein dataset
+  PROT_comp <- protein[, c("uniprot_ID",paste0(a,"_vs_",b,"_logFC"),paste0(a,"_vs_",b,"_P.Value"),paste0(a,"_vs_",b,"_adj.P.Val"),paste0(a,"_number_imputed_values"),paste0(b,"_number_imputed_values"),colnames(protein)[grepl(paste0("^",a,".*raw_intensities$"), colnames(protein))],colnames(protein)[grepl(paste0("^",b,".*raw_intensities$"), colnames(protein))])] 
+  
+  #renames some columns for downstream processing
+  colnames(PROT_comp)[colnames(PROT_comp) == "uniprot_ID"] <- "Uniprot_Accession"
+  colnames(PROT_comp)[colnames(PROT_comp) == paste0(a,"_vs_",b,"_logFC")] <- "prot_log2FC"
+  colnames(PROT_comp)[colnames(PROT_comp) == paste0(a,"_vs_",b,"_P.Value")] <- "prot_pvalue"
+  colnames(PROT_comp)[colnames(PROT_comp) == paste0(a,"_vs_",b,"_adj.P.Val")] <- "prot_padj"
+  
+  
+  #Only includes row where either condition A or condition B has 0 imputed values. IE one condition must contain 3 detected proteins. The other condition can have 0-3 imputed values. 
+  PROT_comp <- subset(PROT_comp, PROT_comp[5] == 0 | PROT_comp[6] == 0)
+  
+  #Adds a new column called total_imputed, equal to the total number of imputed values for that comparison. 
+  PROT_comp$total_imputed <- PROT_comp[,paste0(a,"_number_imputed_values")] + PROT_comp[,paste0(b,"_number_imputed_values")]
+  
+  #creates new data frame with dynamic name 
+  assign(paste0("PROT_comp",i), PROT_comp)
+  
+  write.csv(PROT_comp, file=paste0("All_Protein_Comparisons/",paste0(a,"vs",b,".csv")),row.names=FALSE)
+}
+
+
+
+```
+
+
+```{r}
+#In RNA_comp files, renames columns 
+
+for (i in 1:12) {
+  object <- get(paste0("RNA_comp",i))
+  colnames(object)[1] <- "Ensembl_ID"
+  colnames(object)[3] <- "rna_log2FC"
+  colnames(object)[6] <- "rna_pvalue"
+  colnames(object)[7] <- "rna_padj"
+  colnames(object)[8] <- "Ensembl_Symbol"
+  
+  assign(paste0("RNA_comp",i), object)
+  
+}
+```
+
+
+```{r}
+#loads a csv file containing list of uniqueIDs shared between proteomics and RNAseq. See other script for how IDs were mapped. 
+unique_ids <- read.csv("script3_required_files/mapped_data.csv",header=TRUE)
+colnames(unique_ids) <- c("Uniprot_Symbol","Uniprot_Accession","Ensembl_Symbol","Ensembl_ID")
+
+```
+
+
+```{r}
+#Loops through all 1-12 protein comparisons and creates new data frame "PROT_comp1_unique" that only includes the unique IDs. 
+
+for (i in 1:12) {
+  #Calls up the original dataframe and defines it as original_df
+  original_df <- get(paste0("PROT_comp", i))
+  
+  #filters data to only include unique IDs. This uses the dplyr package. 
+  unique_df <- original_df %>% filter(original_df$Uniprot_Accession %in% unique_ids$Uniprot_Accession)
+  
+  #Adds accompanying Ensembl_ID column to comp_unique data
+  unique_df <- merge(unique_df,unique_ids,by = "Uniprot_Accession", all.x = TRUE)
+  
+  #re-arranges the columns in unique dataframe so that geneID (Ensembl) is the first column. Also drops unnecessary columns. 
+  unique_df <- unique_df[,c(16,1,15,14,2,3,4,5,6,13)]
+  
+  #creates new data frame with dynamic name 
+  assign(paste0("PROT_comp",i, "_unique"), unique_df)
+  
+  }
+
+```
+
+
+
+
+```{r}
+#Loops through all 1-12 RNA comparisons and creates new data frame "RNA_comp1_unique" that only includes the unique IDs. 
+
+for (i in 1:12) {
+  #Calls up the original dataframe and defines it as original_df
+  original_df <- get(paste0("RNA_comp", i))
+  
+  #filters data to only include unique IDs based on geneID. This uses the dplyr package. 
+  unique_df <- original_df %>% filter(original_df$Ensembl_ID %in% unique_ids$Ensembl_ID)
+ 
+  #re-arranges the columns in unique dataframe and drops unnessary columns. 
+  #Ensembl_ID (column1), symbol (column8), rna_log2FC (column3), rna_pvalue (column6)
+  unique_df <- unique_df[,c(1,8,3,6,7)]
+  
+  #creates new data frame with dynamic name 
+  assign(paste0("RNA_comp",i, "_unique"), unique_df)
+  
+  }
+
+```
+
+
+```{r}
+#Loops through all 1-12 PROT and RNA comparisons and creates a new dataframe called combined_compx.
+
+dir.create("All_Combined_Comparisons")
+
+for (i in 1:12) {
+  #Calls up the original dataframe and defines it as original_df
+  original_df1 <- get(paste0("PROT_comp", i,"_unique"))
+  original_df2 <- get(paste0("RNA_comp", i,"_unique"))
+
+  #Merges two dataframes by Ensembl_ID column. 
+  unique_df <- merge(original_df1,original_df2,by = "Ensembl_ID", all.x = TRUE)
+  
+  #re-arranges the columns in unique dataframe. 
+  unique_df <- unique_df[,c(1,2,3,4,5,6,7,8,9,10,12,13,14)]
+  
+  colnames(unique_df)[3] <- "Ensembl_Symbol"
+  
+  #removes any dumplicates rows
+  unique_df <- unique_df %>% distinct(Ensembl_ID, .keep_all = TRUE)
+  
+  #creates new data frame with dynamic name 
+  assign(paste0("combined_comp",i), unique_df)  
+  
+  write.csv(unique_df, file=paste0("All_Combined_Comparisons/combined_comp",i,".csv"))
+
+}
+
+```
+
+
+
+
+
+```{r}
+#SYSTEM 1
+
+#Creates new dataframes with System 1 categorization
+
+for (i in 1:12) {
+  #calls up dataframe
+  data <- get(paste0("combined_comp", i)) 
+  
+  #both pvalues significant (and fold changes are in the SAME direction)
+  data_both <- subset(data, rna_padj <.05 & prot_padj <.05 & rna_log2FC*prot_log2FC > 0)
+  #creates new data frames with dynamic name.
+  assign(paste0("combined_comp",i,"_both"), data_both)
+  
+  #both pvalues significant (and fold changes are in the OPPOSITE direction)
+  data_opposite <- subset(data, rna_padj <.05 & prot_padj <.05 & rna_log2FC*prot_log2FC < 0)
+  #creates new data frames with dynamic name.
+  assign(paste0("combined_comp",i,"_opposite"), data_opposite)
+
+   #prot only
+  data_prot_only <- subset(data, rna_padj >= .05 & prot_padj <.05)
+  #creates new data frames with dynamic name.
+  assign(paste0("combined_comp",i,"_prot_only"), data_prot_only)
+  
+  #rna only
+  data_rna_only <- subset(data, prot_padj >= .05 & rna_padj <.05)
+  #creates new data frames with dynamic name.
+  assign(paste0("combined_comp",i,"_rna_only"), data_rna_only)
+  
+   #neither
+  data_neither <- subset(data, prot_padj >= .05 & rna_padj >= .05)
+  #creates new data frames with dynamic name.
+  assign(paste0("combined_comp",i,"_neither"), data_neither)
+  
+  
+  #For each combined_comp_i, creates new column called system1 and adds "both","prot_only","rna_only","neither". Searches based on Ensembl_ID.
+  
+  data$system1 <-case_when(
+    data$Ensembl_ID %in% data_both$Ensembl_ID ~ "both",
+    data$Ensembl_ID %in% data_prot_only$Ensembl_ID ~ "prot_only",
+    data$Ensembl_ID %in% data_rna_only$Ensembl_ID ~ "rna_only",
+    data$Ensembl_ID %in% data_neither$Ensembl_ID ~ "neither",
+    data$Ensembl_ID %in% data_opposite$Ensembl_ID ~ "opposite",
+    TRUE ~ "NA"
+  )  
+
+  #Overwrites combinbed_comp dataframe to include new data with system1 column. 
+  assign(paste0("combined_comp",i), data)
+  
+  
+  }
+```
+
+
+
+
+```{r}
+#SYSTEM 1
+#Calculates number of times a gene product appears in a specific category (concordant, typeI, typeII, typeIII) for each condition. Minimum = 1, Max = 4. 
+
+comparisons_to_perform <- list(
+  list(compa = "comp1", compb = "comp2", compc = "comp3", compd = "comp4", quadrant = "both"),
+  list(compa = "comp1", compb = "comp2", compc = "comp3", compd = "comp4", quadrant = "prot_only"),
+  list(compa = "comp1", compb = "comp2", compc = "comp3", compd = "comp4", quadrant = "rna_only"),
+  list(compa = "comp1", compb = "comp2", compc = "comp3", compd = "comp4", quadrant = "neither"),
+  list(compa = "comp1", compb = "comp2", compc = "comp3", compd = "comp4", quadrant = "opposite"),
+
+  list(compa = "comp5", compb = "comp6", compc = "comp7", compd = "comp8", quadrant = "both"),
+  list(compa = "comp5", compb = "comp6", compc = "comp7", compd = "comp8", quadrant = "prot_only"),
+  list(compa = "comp5", compb = "comp6", compc = "comp7", compd = "comp8", quadrant = "rna_only"),
+  list(compa = "comp5", compb = "comp6", compc = "comp7", compd = "comp8", quadrant = "neither"),
+  list(compa = "comp5", compb = "comp6", compc = "comp7", compd = "comp8", quadrant = "opposite"),
+ 
+  list(compa = "comp9", compb = "comp10", compc = "comp11", compd = "comp12", quadrant = "both"),
+  list(compa = "comp9", compb = "comp10", compc = "comp11", compd = "comp12", quadrant = "prot_only"),
+  list(compa = "comp9", compb = "comp10", compc = "comp11", compd = "comp12", quadrant = "rna_only"),
+  list(compa = "comp9", compb = "comp10", compc = "comp11", compd = "comp12", quadrant = "neither"),
+  list(compa = "comp9", compb = "comp10", compc = "comp11", compd = "comp12", quadrant = "opposite")
+)
+
+# Loop through each set of variables
+for (i in 1:length(comparisons_to_perform)) {
+  
+
+  # Access the current set of variables
+  current_set <- comparisons_to_perform[[i]]
+  
+  # Use the variables from the current set
+  compa <- current_set$compa
+  compb <- current_set$compb
+  compc <- current_set$compc
+  compd <- current_set$compd
+  quadrant <- current_set$quadrant
+
+  
+#Calls up required dataframes using variables specified above. This df only includes the genes in specified quadrant. 
+df1 <- get(paste0("combined_",compa,"_",quadrant))
+df2 <- get(paste0("combined_",compb,"_",quadrant))
+df3 <- get(paste0("combined_",compc,"_",quadrant))
+df4 <- get(paste0("combined_",compd,"_",quadrant))
+
+#Calls up required dataframes using variables specified above. These dfs includes all genes. 
+odf1 <- get(paste0("combined_",compa))
+odf2 <- get(paste0("combined_",compb))
+odf3 <- get(paste0("combined_",compc))
+odf4 <- get(paste0("combined_",compd))
+
+#Creates list of lists (consisiting of df first column (Ensembl ID))
+lists <- list(df1[1],df2[1],df3[1],df4[1])
+
+#Creates list of all genes (Ensembl ID) in each quadrant file for comp1, comp2, comp3, comp4. Genes added to the list if they are found in any of the sub-lists. The gene does not have to appear in all 4 lists, just 1. 
+merged_lists <- Reduce(union,lists)
+
+#makes sure the list of genes in given quadrant contains at least one gene. 
+if (nrow(merged_lists) > 0) {
+
+#Add symbols to merged_lists
+merged_lists <- merged_lists %>% 
+  left_join(unique_ids, by = "Ensembl_ID")
+
+#sets initial number of times in quadrant = 0
+merged_lists$times_in_quadrant <- 0
+
+# Check for presence in df1 and increment
+merged_lists$times_in_quadrant[merged_lists[, 1] %in% df1[, 1]] <- 
+  merged_lists$times_in_quadrant[merged_lists[, 1] %in% df1[, 1]] + 1
+
+# Check for presence in df2 and increment
+merged_lists$times_in_quadrant[merged_lists[, 1] %in% df2[, 1]] <- 
+  merged_lists$times_in_quadrant[merged_lists[, 1] %in% df2[, 1]] + 1
+
+# Check for presence in df3 and increment
+merged_lists$times_in_quadrant[merged_lists[, 1] %in% df3[, 1]] <- 
+  merged_lists$times_in_quadrant[merged_lists[, 1] %in% df3[, 1]] + 1
+
+# Check for presence in df4 and increment
+merged_lists$times_in_quadrant[merged_lists[, 1] %in% df4[, 1]] <- 
+  merged_lists$times_in_quadrant[merged_lists[, 1] %in% df4[, 1]] + 1
+
+
+# Creates series of new columns for each condition and adds 1 to row if gene is found in that condition. 
+merged_lists[[paste0(compa)]][merged_lists[, 1] %in% df1[, 1]] <- 1
+merged_lists[[paste0(compb)]][merged_lists[, 1] %in% df2[, 1]] <- 1
+merged_lists[[paste0(compc)]][merged_lists[, 1] %in% df3[, 1]] <- 1
+merged_lists[[paste0(compd)]][merged_lists[, 1] %in% df4[, 1]] <- 1
+}
+
+# assigns merged_lists to a new dataframe (TL = traffic light)
+assign(paste0(compa,"_",compd,"_TL_",quadrant), merged_lists)
+
+}
+
+```
+
+
+
+
+
+```{r}
+#SYSTEM 2
+#Segmentation with all lines running through origin. Slopes of 3 or 1/3. 
+ 
+#rna_padj <.05 and prot_padj <.05
+
+for (i in 1:12) {
+  #calls up dataframe
+  data <- get(paste0("combined_comp", i)) 
+  
+  #Defines x and y variables for subsetting Y is protein fold change. X is RNA fold change.
+  y = data$prot_log2FC 
+  x = data$rna_log2FC
+  
+  #q1 = RNA up, Protein unchanged
+  data_q1 <- subset(data, (y < (1/3)*x & y > -(1/3)*x & rna_padj <.05))
+  #creates new data frames with dynamic name. Adds genes found in q1 to this dataframe.  
+  assign(paste0("combined_comp",i,"_q1"), data_q1)
+
+  #q2 = RNA unchanged, Protein down 
+  data_q2 <- subset(data, (y < 3*x & y < -3*x & prot_padj <.05))
+  assign(paste0("combined_comp",i,"_q2"), data_q2)
+  
+  #q3 = RNA down, Protein unchanged 
+  data_q3 <- subset(data, (y < -(1/3)*x & y > (1/3)*x & rna_padj <.05))
+  assign(paste0("combined_comp",i,"_q3"), data_q3)
+  
+  #q4 = RNA unchanged, Protein up 
+  data_q4 <- subset(data, (y >3*x & y> -3*x & prot_padj <.05))
+  assign(paste0("combined_comp",i,"_q4"), data_q4)
+
+  #sq1 = RNA up, Protein up 
+  data_sq1 <- subset(data, (y > (1/3)*x & y <3*x & rna_padj <.05 & prot_padj <.05))
+  assign(paste0("combined_comp",i,"_sq1"), data_sq1)
+  
+  #sq2 = RNA up, Protein down 
+  data_sq2 <- subset(data, (y < -(1/3)*x & y > -3*x & rna_padj <.05 & prot_padj <.05))
+  assign(paste0("combined_comp",i,"_sq2"), data_sq2)
+
+  #sq3 = RNA down, Protein down 
+  data_sq3 <- subset(data, (y > 3*x & y < (1/3)*x & rna_padj <.05 & prot_padj <.05))
+  assign(paste0("combined_comp",i,"_sq3"), data_sq3)
+
+  #sq4 = RNA down, Protein up
+  data_sq4 <- subset(data, (y > -(1/3)*x & y< -3*x & rna_padj <.05 & prot_padj <.05))
+  assign(paste0("combined_comp",i,"_sq4"), data_sq4)
+  
+  
+  #For each combined_comp_i, creates new column called system2 and adds "q1" "q2" etc depending on if each gene is found within the lists created above (i.e. combined_comp10_q1). Searches based on Ensembl_ID.
+  
+  data$system2 <-case_when(
+    data$Ensembl_ID %in% data_q1$Ensembl_ID ~ "q1",
+    data$Ensembl_ID %in% data_q2$Ensembl_ID ~ "q2",
+    data$Ensembl_ID %in% data_q3$Ensembl_ID ~ "q3",
+    data$Ensembl_ID %in% data_q4$Ensembl_ID ~ "q4",
+    data$Ensembl_ID %in% data_sq1$Ensembl_ID ~ "sq1",
+    data$Ensembl_ID %in% data_sq2$Ensembl_ID ~ "sq2",
+    data$Ensembl_ID %in% data_sq3$Ensembl_ID ~ "sq3",
+    data$Ensembl_ID %in% data_sq4$Ensembl_ID ~ "sq4",
+    TRUE ~ "NA"
+  )  
+  
+   #Creates combined_comp_NA dataframe
+  data_NA <- subset(data, data$system2 == "NA")
+  assign(paste0("combined_comp",i,"_NA"), data_NA)
+  
+  
+  #Creates new dataframe called data_quadrants_sig which only includes values that have been assigned to a quadrant. Anything unassigned (labelled as NA) is excluded. 
+  data_quadrants_sig <- subset(data, system2 != "NA")
+  
+  #assign unique name to each data_quadrants_sig dataframe
+  assign(paste0("combined_comp",i,"_quadrants_sig"), data_quadrants_sig)
+  
+  #Overwrites combinbed_comp dataframe to include new data with system2 column. 
+  assign(paste0("combined_comp",i), data)
+  
+  
+  }
+```
+
+
+
+```{r}
+#SYSTEM 2
+#Calculates number of times a gene product appears in a specific category (concordant, typeI, typeII, typeIII) for each condition. Minimum = 1, Max = 4. 
+
+
+comparisons_to_perform <- list(
+  list(compa = "comp1", compb = "comp2", compc = "comp3", compd = "comp4", quadrant = "sq1"),
+  list(compa = "comp1", compb = "comp2", compc = "comp3", compd = "comp4", quadrant = "sq2"),
+  list(compa = "comp1", compb = "comp2", compc = "comp3", compd = "comp4", quadrant = "sq3"),
+  list(compa = "comp1", compb = "comp2", compc = "comp3", compd = "comp4", quadrant = "sq4"),
+  list(compa = "comp1", compb = "comp2", compc = "comp3", compd = "comp4", quadrant = "q1"),
+  list(compa = "comp1", compb = "comp2", compc = "comp3", compd = "comp4", quadrant = "q2"),
+  list(compa = "comp1", compb = "comp2", compc = "comp3", compd = "comp4", quadrant = "q3"),
+  list(compa = "comp1", compb = "comp2", compc = "comp3", compd = "comp4", quadrant = "q4"),
+  list(compa = "comp1", compb = "comp2", compc = "comp3", compd = "comp4", quadrant = "NA"),
+  
+  list(compa = "comp5", compb = "comp6", compc = "comp7", compd = "comp8", quadrant = "sq1"),
+  list(compa = "comp5", compb = "comp6", compc = "comp7", compd = "comp8", quadrant = "sq2"),
+  list(compa = "comp5", compb = "comp6", compc = "comp7", compd = "comp8", quadrant = "sq3"),
+  list(compa = "comp5", compb = "comp6", compc = "comp7", compd = "comp8", quadrant = "sq4"),
+  list(compa = "comp5", compb = "comp6", compc = "comp7", compd = "comp8", quadrant = "q1"),
+  list(compa = "comp5", compb = "comp6", compc = "comp7", compd = "comp8", quadrant = "q2"),
+  list(compa = "comp5", compb = "comp6", compc = "comp7", compd = "comp8", quadrant = "q3"),
+  list(compa = "comp5", compb = "comp6", compc = "comp7", compd = "comp8", quadrant = "q4"),
+  list(compa = "comp5", compb = "comp6", compc = "comp7", compd = "comp8", quadrant = "NA"),
+ 
+  list(compa = "comp9", compb = "comp10", compc = "comp11", compd = "comp12", quadrant = "sq1"),
+  list(compa = "comp9", compb = "comp10", compc = "comp11", compd = "comp12", quadrant = "sq2"),
+  list(compa = "comp9", compb = "comp10", compc = "comp11", compd = "comp12", quadrant = "sq3"),
+  list(compa = "comp9", compb = "comp10", compc = "comp11", compd = "comp12", quadrant = "sq4"),
+  list(compa = "comp9", compb = "comp10", compc = "comp11", compd = "comp12", quadrant = "q1"),
+  list(compa = "comp9", compb = "comp10", compc = "comp11", compd = "comp12", quadrant = "q2"),
+  list(compa = "comp9", compb = "comp10", compc = "comp11", compd = "comp12", quadrant = "q3"),
+  list(compa = "comp9", compb = "comp10", compc = "comp11", compd = "comp12", quadrant = "q4"),
+  list(compa = "comp9", compb = "comp10", compc = "comp11", compd = "comp12", quadrant = "NA")
+)
+
+# Loop through each set of variables
+for (i in 1:length(comparisons_to_perform)) {
+  
+
+  # Access the current set of variables
+  current_set <- comparisons_to_perform[[i]]
+  
+  # Use the variables from the current set
+  compa <- current_set$compa
+  compb <- current_set$compb
+  compc <- current_set$compc
+  compd <- current_set$compd
+  quadrant <- current_set$quadrant
+#criteria only consists of slope-defined region. It does not contain p-value cutoffs. 
+
+  
+#Calls up required dataframes using variables specified above. This df only includes the genes in specified quadrant. 
+df1 <- get(paste0("combined_",compa,"_",quadrant))
+df2 <- get(paste0("combined_",compb,"_",quadrant))
+df3 <- get(paste0("combined_",compc,"_",quadrant))
+df4 <- get(paste0("combined_",compd,"_",quadrant))
+
+#Calls up required dataframes using variables specified above. These dfs includes all genes. 
+odf1 <- get(paste0("combined_",compa))
+odf2 <- get(paste0("combined_",compb))
+odf3 <- get(paste0("combined_",compc))
+odf4 <- get(paste0("combined_",compd))
+
+#Creates list of lists (consisiting of df first column (Ensembl ID))
+lists <- list(df1[1],df2[1],df3[1],df4[1])
+
+#Creates list of all genes (Ensembl ID) in each quadrant file for comp1, comp2, comp3, comp4. Genes added to the list if they are found in any of the sub-lists. The gene does not have to appear in all 4 lists, just 1. 
+merged_lists <- Reduce(union,lists)
+
+#makes sure the list of genes in given quadrant contains at least one gene. 
+if (nrow(merged_lists) > 0) {
+
+#Add symbols to merged_lists
+merged_lists <- merged_lists %>% 
+  left_join(unique_ids, by = "Ensembl_ID")
+
+#sets initial number of times in quadrant = 0
+merged_lists$times_in_quadrant <- 0
+
+# Check for presence in df1 and increment
+merged_lists$times_in_quadrant[merged_lists[, 1] %in% df1[, 1]] <- 
+  merged_lists$times_in_quadrant[merged_lists[, 1] %in% df1[, 1]] + 1
+
+# Check for presence in df2 and increment
+merged_lists$times_in_quadrant[merged_lists[, 1] %in% df2[, 1]] <- 
+  merged_lists$times_in_quadrant[merged_lists[, 1] %in% df2[, 1]] + 1
+
+# Check for presence in df3 and increment
+merged_lists$times_in_quadrant[merged_lists[, 1] %in% df3[, 1]] <- 
+  merged_lists$times_in_quadrant[merged_lists[, 1] %in% df3[, 1]] + 1
+
+# Check for presence in df4 and increment
+merged_lists$times_in_quadrant[merged_lists[, 1] %in% df4[, 1]] <- 
+  merged_lists$times_in_quadrant[merged_lists[, 1] %in% df4[, 1]] + 1
+
+
+# Creates series of new columns for each condition and adds 1 to row if gene is found in that condition. 
+merged_lists[[paste0(compa)]][merged_lists[, 1] %in% df1[, 1]] <- 1
+merged_lists[[paste0(compb)]][merged_lists[, 1] %in% df2[, 1]] <- 1
+merged_lists[[paste0(compc)]][merged_lists[, 1] %in% df3[, 1]] <- 1
+merged_lists[[paste0(compd)]][merged_lists[, 1] %in% df4[, 1]] <- 1
+}
+
+# assigns merged_lists to a new dataframe (TL = traffic light)
+assign(paste0(compa,"_",compd,"_TL_",quadrant), merged_lists)
+
+}
+
+```
+
+
+
+
+```{r}
+#Supplementary Figure 2E Data
+#SYSTEM 1 SEX CALCULATION
+#Calculates number of SEX concordant, type 1, 2, 3 discordant in System 1. Looks at a variety of different cutoffs too. 
+
+a = "comp1_comp4_TL_"
+
+#Creates dataframe for storing values later
+summary_df <- data.frame(matrix(ncol = 4, nrow = 5))
+colnames(summary_df) <- c("4x","3x","2x","1x")
+rownames(summary_df) <- c("both","prot_only","rna_only","opposite","neither")
+
+comparisons_to_perform <- list(
+  list(b = "both", c = 1),list(b = "prot_only", c = 2),list(b = "rna_only", c = 3),list(b = "opposite", c = 4),list(b = "neither", c = 5))
+
+for (i in 1:length(comparisons_to_perform)) {
+  
+  # Access the current set of variables
+  current_set <- comparisons_to_perform[[i]]
+  
+  # Use the variables from the current set
+  b <- current_set$b
+  c <- current_set$c
+  
+  df <- get(paste0(a,b))
+
+#counts number of genes where times_in_quadrant is > 1, 2, 3, etc
+c1 <- nrow(df[df$times_in_quadrant > 3, ])
+c2 <- nrow(df[df$times_in_quadrant > 2, ])
+c3 <- nrow(df[df$times_in_quadrant > 1, ])
+c4 <- nrow(df[df$times_in_quadrant > 0, ])
+
+summary_df[c,] <- c(c1, c2, c3, c4)
+
+}
+write.csv(summary_df, file = paste0("SuppFigure2E_data_sex.csv"))
+
+
+```
+
+
+
+```{r}
+#Supplementary Figure 2E Data
+#SYSTEM 1 ZONE CALCULATION
+#Calculates number of ZONE concordant, type 1, 2, 3 discordant in System 1. Looks at a variety of different cutoffs too. 
+
+a = "comp5_comp8_TL_"
+
+#Creates dataframe for storing values later
+summary_df <- data.frame(matrix(ncol = 4, nrow = 5))
+colnames(summary_df) <- c("4x","3x","2x","1x")
+rownames(summary_df) <- c("both","prot_only","rna_only","opposite","neither")
+
+comparisons_to_perform <- list(
+  list(b = "both", c = 1),list(b = "prot_only", c = 2),list(b = "rna_only", c = 3),list(b = "opposite", c = 4),list(b = "neither", c = 5))
+
+for (i in 1:length(comparisons_to_perform)) {
+  
+  # Access the current set of variables
+  current_set <- comparisons_to_perform[[i]]
+  
+  # Use the variables from the current set
+  b <- current_set$b
+  c <- current_set$c
+  
+  df <- get(paste0(a,b))
+
+#counts number of genes where times_in_quadrant is > 1, 2, 3, etc
+c1 <- nrow(df[df$times_in_quadrant > 3, ])
+c2 <- nrow(df[df$times_in_quadrant > 2, ])
+c3 <- nrow(df[df$times_in_quadrant > 1, ])
+c4 <- nrow(df[df$times_in_quadrant > 0, ])
+
+summary_df[c,] <- c(c1, c2, c3, c4)
+
+}
+write.csv(summary_df, file = paste0("SuppFigure2E_data_zone.csv"))
+
+```
+
+```{r}
+#Supplementary Figure 2E Data
+#SYSTEM 1 METABOLIC STATE CALCULATION
+#Calculates number of METABOLIC STATE concordant, type 1, 2, 3 discordant in System 1. Looks at a variety of different cutoffs too. 
+
+a = "comp9_comp12_TL_"
+
+#Creates dataframe for storing values later
+summary_df <- data.frame(matrix(ncol = 4, nrow = 5))
+colnames(summary_df) <- c("4x","3x","2x","1x")
+rownames(summary_df) <- c("both","prot_only","rna_only","opposite","neither")
+
+comparisons_to_perform <- list(
+  list(b = "both", c = 1),list(b = "prot_only", c = 2),list(b = "rna_only", c = 3),list(b = "opposite", c = 4),list(b = "neither", c = 5))
+
+for (i in 1:length(comparisons_to_perform)) {
+  
+  # Access the current set of variables
+  current_set <- comparisons_to_perform[[i]]
+  
+  # Use the variables from the current set
+  b <- current_set$b
+  c <- current_set$c
+  
+  df <- get(paste0(a,b))
+
+#counts number of genes where times_in_quadrant is > 1, 2, 3, etc
+c1 <- nrow(df[df$times_in_quadrant > 3, ])
+c2 <- nrow(df[df$times_in_quadrant > 2, ])
+c3 <- nrow(df[df$times_in_quadrant > 1, ])
+c4 <- nrow(df[df$times_in_quadrant > 0, ])
+
+summary_df[c,] <- c(c1, c2, c3, c4)
+
+}
+write.csv(summary_df, file = paste0("SuppFigure2E_data_metabolism.csv"))
+
+```
+
+
+
+
+
+```{r}
+#Supplementary Figure 2F Data
+#SYSTEM 2 SEX CALCULATION
+#Calculates number of SEX concordant, type 1, 2, 3 discordant in System 2. Looks at a variety of different cutoffs too. 
+
+dir.create("System2_3out4")
+
+a = "comp1_comp4_TL_"
+
+#Creates dataframe for storing values later
+summary_df <- data.frame(matrix(ncol = 4, nrow = 9))
+colnames(summary_df) <- c("4x","3x","2x","1x")
+rownames(summary_df) <- c("sq1","sq3","q2","q4","q1","q3","sq2","sq4","NA")
+
+comparisons_to_perform <- list(
+  list(b = "sq1", c = 1),list(b = "sq3", c = 2),list(b = "q2", c = 3),list(b = "q4", c = 4),list(b = "q1", c = 5),list(b = "q3", c = 6),list(b = "sq2", c = 7),list(b = "sq4", c = 8),list(b = "NA", c = 9))
+
+for (i in 1:length(comparisons_to_perform)) {
+  
+  # Access the current set of variables
+  current_set <- comparisons_to_perform[[i]]
+  
+  # Use the variables from the current set
+  b <- current_set$b
+  c <- current_set$c
+  
+  df <- get(paste0(a,b))
+
+#counts number of genes where times_in_quadrant is > 1, 2, 3, etc
+c1 <- nrow(df[df$times_in_quadrant > 3, ])
+c2 <- nrow(df[df$times_in_quadrant > 2, ])
+c3 <- nrow(df[df$times_in_quadrant > 1, ])
+c4 <- nrow(df[df$times_in_quadrant > 0, ])
+
+summary_df[c,] <- c(c1, c2, c3, c4)
+
+#exports list genes that meet the 3/4 cutoff in each category. 
+export <- subset(df, times_in_quadrant > 2)
+assign(paste0("sex_",b, "_system2_3out4"), export)
+
+}
+
+write.csv(summary_df, file = paste0("SuppFigure2F_data_sex.csv"))
+
+write.csv(rbind(sex_sq1_system2_3out4, sex_sq3_system2_3out4), file = "System2_3out4/sex_concordant_system2_3out4.csv", row.names = FALSE)
+write.csv(rbind(sex_q2_system2_3out4, sex_q4_system2_3out4), file = "System2_3out4/sex_type1_system2_3out4.csv", row.names = FALSE)
+write.csv(rbind(sex_q1_system2_3out4, sex_q3_system2_3out4), file = "System2_3out4/sex_type2_system2_3out4.csv", row.names = FALSE)
+
+```
+
+
+```{r}
+#Supplementary Figure 2F Data
+#SYSTEM 2 ZONE CALCULATION
+#Calculates number of ZONE concordant, type 1, 2, 3 discordant in System 2. Looks at a variety of different cutoffs too. 
+
+a = "comp5_comp8_TL_"
+
+#Creates dataframe for storing values later
+summary_df <- data.frame(matrix(ncol = 4, nrow = 9))
+colnames(summary_df) <- c("4x","3x","2x","1x")
+rownames(summary_df) <- c("sq1","sq3","q2","q4","q1","q3","sq2","sq4","NA")
+
+comparisons_to_perform <- list(
+  list(b = "sq1", c = 1),list(b = "sq3", c = 2),list(b = "q2", c = 3),list(b = "q4", c = 4),list(b = "q1", c = 5),list(b = "q3", c = 6),list(b = "sq2", c = 7),list(b = "sq4", c = 8),list(b = "NA", c = 9))
+
+for (i in 1:length(comparisons_to_perform)) {
+  
+  # Access the current set of variables
+  current_set <- comparisons_to_perform[[i]]
+  
+  # Use the variables from the current set
+  b <- current_set$b
+  c <- current_set$c
+  
+  df <- get(paste0(a,b))
+
+#counts number of genes where times_in_quadrant is > 1, 2, 3, etc
+c1 <- nrow(df[df$times_in_quadrant > 3, ])
+c2 <- nrow(df[df$times_in_quadrant > 2, ])
+c3 <- nrow(df[df$times_in_quadrant > 1, ])
+c4 <- nrow(df[df$times_in_quadrant > 0, ])
+
+summary_df[c,] <- c(c1, c2, c3, c4)
+
+#exports list genes that meet the 3/4 cutoff in each category. 
+export <- subset(df, times_in_quadrant > 2)
+assign(paste0("zone_",b, "_system2_3out4"), export)
+
+}
+write.csv(summary_df, file = paste0("SuppFigure2F_data_zone.csv"))
+
+write.csv(rbind(zone_sq1_system2_3out4, zone_sq3_system2_3out4), file = "System2_3out4/zone_concordant_system2_3out4.csv", row.names = FALSE)
+write.csv(rbind(zone_q2_system2_3out4, zone_q4_system2_3out4), file = "System2_3out4/zone_type1_system2_3out4.csv", row.names = FALSE)
+write.csv(rbind(zone_q1_system2_3out4, zone_q3_system2_3out4), file = "System2_3out4/zone_type2_system2_3out4.csv", row.names = FALSE)
+
+```
+
+
+```{r}
+#Supplementary Figure 2F Data
+#SYSTEM 2 METABOLIC STATE CALCULATION
+#Calculates number of METABOLIC STATE concordant, type 1, 2, 3 discordant in System 2. Looks at a variety of different cutoffs too. 
+
+a = "comp9_comp12_TL_"
+
+#Creates dataframe for storing values later
+summary_df <- data.frame(matrix(ncol = 4, nrow = 9))
+colnames(summary_df) <- c("4x","3x","2x","1x")
+rownames(summary_df) <- c("sq1","sq3","q2","q4","q1","q3","sq2","sq4","NA")
+
+comparisons_to_perform <- list(
+  list(b = "sq1", c = 1),list(b = "sq3", c = 2),list(b = "q2", c = 3),list(b = "q4", c = 4),list(b = "q1", c = 5),list(b = "q3", c = 6),list(b = "sq2", c = 7),list(b = "sq4", c = 8),list(b = "NA", c = 9))
+
+for (i in 1:length(comparisons_to_perform)) {
+  
+  # Access the current set of variables
+  current_set <- comparisons_to_perform[[i]]
+  
+  # Use the variables from the current set
+  b <- current_set$b
+  c <- current_set$c
+  
+  df <- get(paste0(a,b))
+
+#counts number of genes where times_in_quadrant is > 1, 2, 3, etc
+c1 <- nrow(df[df$times_in_quadrant > 3, ])
+c2 <- nrow(df[df$times_in_quadrant > 2, ])
+c3 <- nrow(df[df$times_in_quadrant > 1, ])
+c4 <- nrow(df[df$times_in_quadrant > 0, ])
+
+summary_df[c,] <- c(c1, c2, c3, c4)
+
+#exports list genes that meet the 3/4 cutoff in each category. 
+export <- subset(df, times_in_quadrant > 2)
+assign(paste0("metabolism_",b, "_system2_3out4"), export)
+
+}
+write.csv(summary_df, file = paste0("SuppFigure2F_data_metabolism.csv"))
+
+write.csv(rbind(metabolism_sq1_system2_3out4, metabolism_sq3_system2_3out4), file = "System2_3out4/metabolism_concordant_system2_3out4.csv", row.names = FALSE)
+write.csv(rbind(metabolism_q2_system2_3out4, metabolism_q4_system2_3out4), file = "System2_3out4/metabolism_type1_system2_3out4.csv", row.names = FALSE)
+write.csv(rbind(metabolism_q1_system2_3out4, metabolism_q3_system2_3out4), file = "System2_3out4/metabolism_type2_system2_3out4.csv", row.names = FALSE)
+
+```
+
+
+
+```{r}
+#Exports all combined_comparison files with classification information.
+
+dir.create("All_Combined_Comparisons_Classified")
+
+for (i in 1:12) {
+  
+  #calls up required dataframe
+  df <- get(paste0("combined_comp",i))
+  
+  df$system1[df$system1 == "both"] <- "Concordant"
+  df$system1[df$system1 == "prot_only"] <- "Type_1_discordant"
+  df$system1[df$system1 == "rna_only"] <- "Type_2_discordant"
+  df$system1[df$system1 == "opposite"] <- "Type_3_discordant"
+  df$system1[df$system1 == "neither"] <- "Non-significant"
+  df$system1[df$system1 == "NA"] <- "Non-significant"
+  
+  
+  df$system2[df$system2 == "sq1"] <- "Concordant"
+  df$system2[df$system2 == "sq3"] <- "Concordant"
+  df$system2[df$system2 == "q2"] <- "Type_1_discordant"
+  df$system2[df$system2 == "q4"] <- "Type_1_discordant"
+  df$system2[df$system2 == "q1"] <- "Type_2_discordant"
+  df$system2[df$system2 == "q3"] <- "Type_2_discordant"
+  df$system2[df$system2 == "sq2"] <- "Type_3_discordant"
+  df$system2[df$system2 == "sq4"] <- "Type_3_discordant"
+  df$system2[df$system2 == "NA"] <- "Non-significant"
+  
+  write.csv(df, file=paste0("All_Combined_Comparisons_Classified/classified_combined_comp_",i,".csv"))
+  
+}
+```
+
+
+```{r}
+#Figure 4C, Figure 4D Data
+dir.create("Figure4C-4D_data")
+
+for (i in 1:12) {
+  
+  #calls up required dataframe
+  df <- get(paste0("combined_comp",i))
+  
+  #subsets concordant
+  df1 <- subset(df, system2 == "sq1" | system2 == "sq3")
+  #subsets type1 discordant
+  df2 <- subset(df, system2 == "q2" | system2 == "q4")
+  #subsets type2 discordant
+  df3 <- subset(df, system2 == "q1" | system2 == "q3")
+  #subsets type3 discordant
+  df4 <- subset(df, system2 == "sq2" | system2 == "sq4")
+  
+  write.csv(df1, file=paste0("Figure4C-4D_data/",paste0(i,"_concordant.csv")),row.names=TRUE)
+  write.csv(df2, file=paste0("Figure4C-4D_data/",paste0(i,"_type1.csv")),row.names=TRUE)
+  
+  write.csv(df3, file=paste0("Figure4C-4D_data/",paste0(i,"_type2.csv")),row.names=TRUE)
+  write.csv(df4, file=paste0("Figure4C-4D_data/",paste0(i,"_type3.csv")),row.names=TRUE)
+
+}
+
+```
+
+
+
+
+```{r}
+#Supplemental Figure 2B Data
+#Within-gene correlation
+#Calculates Slope, R-squared, and R for all comparisons and exports as dataframe.
+
+
+summary_df <- data.frame(matrix(ncol = 5, nrow = 12))
+colnames(summary_df) <- c("Slope_lm_function","R_squared_lm_function","R_linear_lm_function","Pearson_R_cor.test_function","Spearman_Rho_cor.test_function")
+rownames(summary_df) <- c(
+"1_F0hPC_vs_M0hPC",
+"2_F0hPP_vs_M0hPP",
+"3_F24hPC_vs_M24hPC",
+"4_F24hPP_vs_M24hPP",
+"5_F0hPC_vs_F0hPP",
+"6_F24hPC_vs_F24hPP",
+"7_M0hPC_vs_M0hPP",
+"8_M24hPC_vs_M24hPP",
+"9_F0hPC_vs_F24hPC",
+"10_F0hPP_vs_F24hPP",
+"11_M0hPC_vs_M24hPC",
+"12_M0hPP_vs_M24hPP"
+)
+
+for (i in 1:12) {
+
+comparison <- paste0("combined_comp",i)
+data <- get(comparison)
+y <- data$prot_log2FC
+x <- data$rna_log2FC
+
+# Fits data to linear model
+model <- lm(y ~ x, data = data)
+
+# Extract R-squared value, slope, and R values. 
+r_squared <- summary(model)$r.squared
+slope <- coef(model)[2] # Get the slope of the linear model
+r_linear <- sign(slope) * sqrt(r_squared) # Apply the sign of the slope
+
+#Calculates Pearson R using different function
+result <- cor.test(x, y, method = "pearson")
+pearson_r <- result$estimate
+
+#Calculates Spearman Rho using different function
+result <- cor.test(x, y, method = "spearman")
+spearman_rho <- result$estimate
+
+
+summary_df[i,] <- c(slope, r_squared, r_linear, pearson_r, spearman_rho)
+
+}
+
+write.csv(summary_df, file = paste0("SuppFigure2B_within-gene_data.csv"), row.names = TRUE, col.names = TRUE)
+
+
+```
+
+
+
+
+
+
+
+```{r}
+#Figure 2A
+
+#Specify comparison to plot. 
+comparison <- "combined_comp5"
+plotname <- "plot5"
+graphname <- "Female Fed (PC/PP)"
+xname <- "RNA log2FC (PC/PP)"
+yname <- "Protein log2FC (PC/PP)"
+
+#Defines variables for these plots. 
+data <- get(comparison)
+y <- data$prot_log2FC
+x <- data$rna_log2FC
+
+# Fits data to linear model
+model <- lm(y ~ x, data = data)
+
+# Extract R-squared value for linear fit
+r_squared <- summary(model)$r.squared
+slope <- coef(model)[2] # Get the slope of the linear model
+r_linear <- sign(slope) * sqrt(r_squared) # Apply the sign of the slope
+
+# Create a new column to define the shape
+data$shape_type <- ifelse(data$total_imputed == 0, 1, 2)  # 1 for circle, 2 for triangle
+
+p1 <- ggplot(data,aes(x=x,y=y, shape = as.factor(shape_type))) +geom_hline(yintercept = 0, size = 0.2) +geom_vline(xintercept = 0, color = "black", size = 0.2) +geom_point(size = 2.5, show.legend = FALSE)+labs(title = graphname, x = xname, y = yname) +theme_minimal() +theme(axis.text = element_text(size = 15)) +geom_abline(slope = 1, intercept = 0, color = "firebrick1", linetype = "dashed", size = 0.6) +coord_fixed(ratio = 1) +geom_smooth(method = "lm", color = "royalblue1", size= 0.6, se = FALSE, aes(group = 1)) +scale_shape_manual(values = c("1" = 16, "2" = 18)) +theme(legend.position = "none") 
+
+
+ggsave("Figure2A.jpg", plot = p1, width = 6, height = 4, dpi = 1000)
+print(p1)
+```
+
+
+```{r}
+#Figure 2C (Zone)
+#SYSTEM 1 GRAPH (Coloring by Pvalue)
+
+#Specify comparison to plot. 
+comparison <- "combined_comp5"
+plotname <- "plot5"
+graphname <- "Female Fed (PC/PP)"
+xname <- "RNA log2FC (PC/PP)"
+yname <- "Protein log2FC (PC/PP)"
+
+#Defines variables for these plots. 
+data <- get(comparison)
+y <- data$prot_log2FC
+x <- data$rna_log2FC
+    
+# Fits data to linear model
+model <- lm(y ~ x, data = data)
+
+# Extract R-squared value for linear fit
+r_squared <- summary(model)$r.squared
+r_linear <- sqrt(r_squared)
+
+# Create a new column to define the shape
+data$shape_type <- ifelse(data$total_imputed == 0, 1, 2)  # 1 for circle, 2 for triangle
+
+p1 <- ggplot(data,aes(x=x,y=y, color = system1, shape = as.factor(shape_type))) +geom_hline(yintercept = 0, size = 0.2) +geom_vline(xintercept = 0, color = "black", size = 0.2) +geom_point(size = 2.5, show.legend = FALSE)+labs(title = graphname, x = xname, y = yname) +theme_minimal() +theme(axis.text = element_text(size = 15)) +geom_abline(slope = 1, intercept = 0, color = "slategrey", linetype = "dashed", size = 0.6) +coord_fixed(ratio = 1) +xlim(-10, 10) +ylim(-10, 10) +geom_smooth(method = "lm", color = "black", size= 0.4, se = FALSE, aes(group = 1)) +scale_color_manual(values =c("neither" = "gray75", "both" = "goldenrod1", "prot_only" = "deeppink1", "rna_only" = "cyan4", "opposite" = "black", "NA" = "gray75"), breaks = c("Transcript p-value <.05","Protein p-value <.05", "Protein and Transcript p-value <.05","Neither significant")) +scale_shape_manual(values = c("1" = 16, "2" = 18)) +theme(legend.position = "none") 
+
+
+ggsave("Figure2C_zone.jpg", plot = p1, width = 6, height = 4, dpi = 1000)
+print(p1)
+```
+
+
+```{r}
+#Figure 2C (Sex)
+#SYSTEM 1 GRAPH (Coloring by Pvalue)
+
+#Specify comparison to plot. 
+comparison <- "combined_comp1"
+plotname <- "plot1"
+graphname <- "Fed PC (Female/Male)"
+xname <- "RNA log2FC (Female/Male)"
+yname <- "Protein log2FC (Female/Male)"
+
+#Defines variables for these plots. 
+data <- get(comparison)
+y <- data$prot_log2FC
+x <- data$rna_log2FC
+    
+# Fits data to linear model
+model <- lm(y ~ x, data = data)
+
+# Extract R-squared value for linear fit
+r_squared <- summary(model)$r.squared
+r_linear <- sqrt(r_squared)
+
+# Create a new column to define the shape
+data$shape_type <- ifelse(data$total_imputed == 0, 1, 2)  # 1 for circle, 2 for triangle
+
+p1 <- ggplot(data,aes(x=x,y=y, color = system1, shape = as.factor(shape_type))) +geom_hline(yintercept = 0, size = 0.2) +geom_vline(xintercept = 0, color = "black", size = 0.2) +geom_point(size = 2.5, show.legend = FALSE)+labs(title = graphname, x = xname, y = yname) +theme_minimal() +theme(axis.text = element_text(size = 15)) +geom_abline(slope = 1, intercept = 0, color = "slategrey", linetype = "dashed", size = 0.6) +coord_fixed(ratio = 1) +xlim(-10, 10) +ylim(-10, 10) +geom_smooth(method = "lm", color = "black", size= 0.4, se = FALSE, aes(group = 1)) +scale_color_manual(values =c("neither" = "gray75", "both" = "goldenrod1", "prot_only" = "deeppink1", "rna_only" = "cyan4", "opposite" = "black", "NA" = "gray75"), breaks = c("Transcript p-value <.05","Protein p-value <.05", "Protein and Transcript p-value <.05","Neither significant")) +scale_shape_manual(values = c("1" = 16, "2" = 18)) +theme(legend.position = "none") 
+
+
+ggsave("Figure2C_sex.jpg", plot = p1, width = 6, height = 4, dpi = 1000)
+print(p1)
+```
+
+
+```{r}
+#Figure 2C (Metabolic State)
+#SYSTEM 1 GRAPH (Coloring by Pvalue)
+
+#Specify comparison to plot. 
+comparison <- "combined_comp9"
+plotname <- "plot9"
+graphname <- "Female PC (Fed/Starved)"
+xname <- "RNA log2FC (Fed/Starved)"
+yname <- "Protein log2FC (Fed/Starved)"
+
+#Defines variables for these plots. 
+data <- get(comparison)
+y <- data$prot_log2FC
+x <- data$rna_log2FC
+    
+# Fits data to linear model
+model <- lm(y ~ x, data = data)
+
+# Extract R-squared value for linear fit
+r_squared <- summary(model)$r.squared
+r_linear <- sqrt(r_squared)
+
+# Create a new column to define the shape
+data$shape_type <- ifelse(data$total_imputed == 0, 1, 2)  # 1 for circle, 2 for triangle
+
+p1 <- ggplot(data,aes(x=x,y=y, color = system1, shape = as.factor(shape_type))) +geom_hline(yintercept = 0, size = 0.2) +geom_vline(xintercept = 0, color = "black", size = 0.2) +geom_point(size = 2.5, show.legend = FALSE)+labs(title = graphname, x = xname, y = yname) +theme_minimal() +theme(axis.text = element_text(size = 15)) +geom_abline(slope = 1, intercept = 0, color = "slategrey", linetype = "dashed", size = 0.6) +coord_fixed(ratio = 1) +xlim(-10, 10) +ylim(-10, 10) +geom_smooth(method = "lm", color = "black", size= 0.4, se = FALSE, aes(group = 1)) +scale_color_manual(values =c("neither" = "gray75", "both" = "goldenrod1", "prot_only" = "deeppink1", "rna_only" = "cyan4", "opposite" = "black", "NA" = "gray75"), breaks = c("Transcript p-value <.05","Protein p-value <.05", "Protein and Transcript p-value <.05","Neither significant")) +scale_shape_manual(values = c("1" = 16, "2" = 18)) +theme(legend.position = "none") 
+
+
+ggsave("Figure2C_metabolism.jpg", plot = p1, width = 6, height = 4, dpi = 1000)
+print(p1)
+```
+
+
+
+```{r}
+#Figure 3A
+#SYSTEM 2 GRAPH PC/PP (COMP5) (Coloring by Quadrant)
+
+
+#Specify comparison to plot. 
+comparison <- "combined_comp5"
+plotname <- "plot5"
+graphname <- "Female Fed (PC/PP)"
+xname <- "RNA log2FC (PC/PP)"
+yname <- "Protein log2FC (PC/PP)"
+
+data_qs <- get(paste0(comparison,"_quadrants_sig"))
+yqs <- data_qs$prot_log2FC
+xqs <- data_qs$rna_log2FC
+
+
+# Create a new column to define the shape
+data_qs$shape_type <- ifelse(data_qs$total_imputed == 0, 1, 2)  # 1 for circle, 2 for triangle
+
+p3 <- ggplot(data_qs,aes(x=xqs, y=yqs, color = system2, shape = as.factor(shape_type), label = Ensembl_Symbol)) +geom_hline(yintercept = 0, color = "black", size = 0.2) +geom_vline(xintercept = 0, color = "black", size = 0.2) + geom_point(size = 2.5, show.legend = FALSE) +labs(title = graphname, x = xname, y = yname) + theme_minimal() +theme(axis.text = element_text(size = 15)) + geom_abline(slope = 1, intercept = 0, color = "slategrey", linetype = "dashed", size = 0.5) +geom_text_repel(color = "black", max.overlaps = 10) +coord_fixed(ratio = 1) + scale_x_continuous(breaks = seq(-10, 8, by = 2)) + scale_y_continuous(breaks = seq(-10, 10, by = 2)) +scale_color_manual(values =c("q1" = "cyan4", "q2" = "deeppink1", "q3" = "cyan4", "q4" = "deeppink1", "sq1" = "goldenrod1", "sq2" = "black", "sq3" = "goldenrod1", "sq4"= "black", "NA"="gray75"))+
+  scale_shape_manual(values = c("1" = 16, "2" = 18)) +theme(legend.position = "none")
+
+
+ggsave("Figure3A.jpg", plot = p3, width = 5, height = 5, dpi = 1000)
+print(p3)
+```
+
+
+
+```{r}
+#Figure 3B
+#UPSET PLOT for CONCORDANT ZONATION GENES
+
+# List of PC Concordant genes (sq1)
+data_list <- list(
+ Male_Starved = combined_comp8_sq1$Uniprot_Symbol,
+  Male_Fed = combined_comp7_sq1$Uniprot_Symbol,
+  Female_Starved = combined_comp6_sq1$Uniprot_Symbol,
+  Female_Fed = combined_comp5_sq1$Uniprot_Symbol
+)
+# Convert the list to a binary matrix for UpSetR
+all_elements <- unique(unlist(data_list))
+
+binary_matrix_PC <- as.data.frame(t(sapply(all_elements, function(x) {
+  sapply(data_list, function(set) as.numeric(x %in% set))
+})))
+
+
+# List of PP Concordant genes (sq3)
+data_list <- list(
+ Male_Starved = combined_comp8_sq3$Uniprot_Symbol,
+  Male_Fed = combined_comp7_sq3$Uniprot_Symbol,
+  Female_Starved = combined_comp6_sq3$Uniprot_Symbol,
+  Female_Fed = combined_comp5_sq3$Uniprot_Symbol
+)
+# Convert the list to a binary matrix for UpSetR
+all_elements <- unique(unlist(data_list))
+
+binary_matrix_PP <- as.data.frame(t(sapply(all_elements, function(x) {
+  sapply(data_list, function(set) as.numeric(x %in% set))
+})))
+
+
+
+#Merges the two binary_matrix dataframes together keeping all rows. 
+binary_matrix_merge <- bind_rows(binary_matrix_PC,binary_matrix_PP)
+
+colnames(binary_matrix_merge) <- names(data_list)
+
+# Save the plot
+jpeg("Figure3B.jpg", width = 8, height = 6, units = "in", res = 1000)
+
+# Create the upset plot
+upset(
+  binary_matrix_merge,
+  sets = colnames(binary_matrix_merge),
+  sets.bar.color = c("lightblue","royalblue1","pink","orchid"),
+  matrix.color = "black",
+  main.bar.color = "goldenrod1",
+  keep.order = TRUE,
+  order.by = "freq", #degree
+  decreasing = FALSE,
+  text.scale = 1.5,
+  shade.color = "gray",
+  point.size = 3.5,
+  line.size = 1
+)
+
+dev.off()
+
+
+upset(
+  binary_matrix_merge,
+  sets = colnames(binary_matrix_merge),
+  sets.bar.color = c("lightblue","royalblue1","pink","orchid"),
+  matrix.color = "black",
+  main.bar.color = "goldenrod1",
+  keep.order = TRUE,
+  order.by = "freq", #degree
+  decreasing = FALSE,
+  text.scale = 1.5,
+  shade.color = "gray",
+  point.size = 3.5,
+  line.size = 1
+)
+
+colSums(binary_matrix_merge)
+```
+
+
+```{r}
+#Figure 3C
+#CONCORDANT ZONATION HEATMAP
+
+df1 <- subset(comp5_comp8_TL_sq1, times_in_quadrant > 3)
+df2 <- subset(comp5_comp8_TL_sq3, times_in_quadrant > 3)
+
+common_values <- c(df1$Uniprot_Symbol, df2$Uniprot_Symbol)
+
+subset_comp5 <- combined_comp5 %>% filter(Uniprot_Symbol %in% common_values)
+subset_comp5 <- subset_comp5[,c("Uniprot_Symbol","prot_log2FC","rna_log2FC")]
+colnames(subset_comp5)[2:3] <- paste0(colnames(subset_comp5)[2:3],"_comp5")
+
+subset_comp6 <- combined_comp6 %>% filter(Uniprot_Symbol %in% common_values)
+subset_comp6 <- subset_comp6[,c("Uniprot_Symbol","prot_log2FC","rna_log2FC")]
+colnames(subset_comp6)[2:3] <- paste0(colnames(subset_comp6)[2:3],"_comp6")
+
+subset_comp7 <- combined_comp7 %>% filter(Uniprot_Symbol %in% common_values)
+subset_comp7 <- subset_comp7[,c("Uniprot_Symbol","prot_log2FC","rna_log2FC")]
+colnames(subset_comp7)[2:3] <- paste0(colnames(subset_comp7)[2:3],"_comp7")
+
+subset_comp8 <- combined_comp8 %>% filter(Uniprot_Symbol %in% common_values)
+subset_comp8 <- subset_comp8[,c("Uniprot_Symbol","prot_log2FC","rna_log2FC")]
+colnames(subset_comp8)[2:3] <- paste0(colnames(subset_comp8)[2:3],"_comp8")
+
+merged_df <- merge(subset_comp5, subset_comp6, by = "Uniprot_Symbol", all = TRUE) # Merge df1 and df2
+merged_df <- merge(merged_df, subset_comp7, by = "Uniprot_Symbol", all = TRUE) # Merge with df3
+subset_merged <- merge(merged_df, subset_comp8, by = "Uniprot_Symbol", all = TRUE) # Merge with df4
+
+subset_merged <- subset_merged[,c(1,2,4,6,8,3,5,7,9)]
+colnames(subset_merged)[1] <- "symbol"
+
+# Calculate the average value for each symbol across the matrix columns
+subset_merged$avg_value <- rowMeans(subset_merged[, -1], na.rm = TRUE)  # Exclude the 'symbol' column
+
+
+#remove any duplicates that keep getting added.
+subset_merged <- subset_merged %>% distinct(symbol, .keep_all = TRUE)
+
+# Reorder the 'symbol' factor based on the average value
+subset_merged$symbol <- factor(subset_merged$symbol, levels = subset_merged$symbol[order(subset_merged$avg_value)])
+
+# Reshape to long format
+df_long <- subset_merged %>%
+  gather(key = "variable", value = "value", -symbol, -avg_value)
+
+# Create the heatmap using ggplot2
+p <- ggplot(df_long, aes(x = variable, y = symbol, fill = value)) +
+  geom_tile(color = "black") +
+  scale_fill_gradient2(low = "red2", mid = "white", high = "navyblue", midpoint = 0, limits = c(-9, 9), breaks = seq(-9, 9, by = 3)) + 
+  theme_minimal() +
+  labs(x = "Comparison", y = "Gene", title = "Heatmap") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) 
+
+ggsave(paste0("Figure3C.jpg"), plot = p, width = 3, height = 9, dpi = 1000)
+print(p)
+
+```
+
+
+
+```{r}
+#Figure 4A
+#SYSTEM 2 GRAPH Female/Male (COMP1) (Coloring by Quadrant)
+
+#Version of the graph where only points in quadrants are shown and points are colored by quadrant.
+specific_labels <- c("Ddx3y","Fmo3","Hao2","Acot3","Sult2a1","Sult2a2","Cyp4a12a","Mup1","Eif2s3y","Hsd3b5","Nat8f5", "Saraf","Ctso","Gpx3","Atp6v0d1","Cyp3a16")
+
+
+#Specify comparison to plot. 
+comparison <- "combined_comp1"
+plotname <- "plot1"
+graphname <- "Fed PC (Female/Male)"
+xname <- "RNA log2FC (Female/Male)"
+yname <- "Protein log2FC (Female/Male)"
+
+data_qs <- get(paste0(comparison,"_quadrants_sig"))
+yqs <- data_qs$prot_log2FC
+xqs <- data_qs$rna_log2FC
+
+
+# Create a new column to define the shape
+data_qs$shape_type <- ifelse(data_qs$total_imputed == 0, 1, 2)  # 1 for circle, 2 for triangle
+
+p3 <- ggplot(data_qs,aes(x=xqs, y=yqs, color = system2, shape = as.factor(shape_type), label = Ensembl_Symbol)) +geom_hline(yintercept = 0, color = "black", size = 0.2) +geom_vline(xintercept = 0, color = "black", size = 0.2) + geom_point(size = 2.5, show.legend = FALSE) +labs(title = graphname, x = xname, y = yname) + theme_minimal() +theme(axis.text = element_text(size = 15)) +geom_text_repel(aes(label = ifelse(Uniprot_Symbol %in% specific_labels, Uniprot_Symbol, NA)), max.overlaps=100, color = "black") +geom_abline(slope = 1, intercept = 0, color = "slategrey", linetype = "dashed", size = 0.5)  +coord_fixed(ratio = 1) + scale_x_continuous(breaks = seq(-10, 8, by = 2)) + scale_y_continuous(breaks = seq(-10, 10, by = 2)) +scale_color_manual(values =c("q1" = "cyan4", "q2" = "deeppink1", "q3" = "cyan4", "q4" = "deeppink1", "sq1" = "goldenrod1", "sq2" = "black", "sq3" = "goldenrod1", "sq4"= "black", "NA"="gray75"))+
+  scale_shape_manual(values = c("1" = 16, "2" = 18)) +theme(legend.position = "none")
+
+
+ggsave("Figure4A.jpg", plot = p3, width = 5, height = 5, dpi = 1000)
+print(p3)
+```
+
+
+```{r}
+#FIGURE 4B (CONCORDANT HEATMAP)
+#3/4 conditions
+#SYSTEM 2 BASED
+#28 genes
+
+
+df1 <- subset(comp1_comp4_TL_sq1, times_in_quadrant > 2)
+df2 <- subset(comp1_comp4_TL_sq3, times_in_quadrant > 2)
+
+common_values <- c(df1$Uniprot_Symbol, df2$Uniprot_Symbol)
+common_values <- trimws(common_values)  # Optional: Remove any leading/trailing spaces
+
+subset_comp1 <- combined_comp1 %>% filter(Uniprot_Symbol %in% common_values)
+subset_comp1 <- subset_comp1[,c("Uniprot_Symbol","prot_log2FC","rna_log2FC")]
+colnames(subset_comp1)[2:3] <- paste0(colnames(subset_comp1)[2:3],"_comp1")
+
+subset_comp2 <- combined_comp2 %>% filter(Uniprot_Symbol %in% common_values)
+subset_comp2 <- subset_comp2[,c("Uniprot_Symbol","prot_log2FC","rna_log2FC")]
+colnames(subset_comp2)[2:3] <- paste0(colnames(subset_comp2)[2:3],"_comp2")
+
+subset_comp3 <- combined_comp3 %>% filter(Uniprot_Symbol %in% common_values)
+subset_comp3 <- subset_comp3[,c("Uniprot_Symbol","prot_log2FC","rna_log2FC")]
+colnames(subset_comp3)[2:3] <- paste0(colnames(subset_comp3)[2:3],"_comp3")
+
+subset_comp4 <- combined_comp4 %>% filter(Uniprot_Symbol %in% common_values)
+subset_comp4 <- subset_comp4[,c("Uniprot_Symbol","prot_log2FC","rna_log2FC")]
+colnames(subset_comp4)[2:3] <- paste0(colnames(subset_comp4)[2:3],"_comp4")
+
+merged_df <- merge(subset_comp1, subset_comp2, by = "Uniprot_Symbol", all = TRUE) # Merge df1 and df2
+merged_df <- merge(merged_df, subset_comp3, by = "Uniprot_Symbol", all = TRUE) # Merge with df3
+subset_merged <- merge(merged_df, subset_comp4, by = "Uniprot_Symbol", all = TRUE) # Merge with df4
+
+subset_merged <- subset_merged[,c(1,2,4,6,8,3,5,7,9)]
+colnames(subset_merged)[1] <- "symbol"
+
+#The following gene products were excluded from combined_comp because their proteins contained too many imputed values. The corresponding RNA log2FC values were also dropped at the same time. I am manually adding the RNA log2FC value back to subset_merged dataframe. 
+gene <- "Hao2"
+comp <- "comp2"
+df <- get(paste0("RNA_",comp,"_unique"))
+subset_merged[[paste0("rna_log2FC_",comp)]][subset_merged$symbol == gene] <- df$rna_log2FC[df$Ensembl_Symbol == gene]
+
+# Calculate the average value for each symbol across the matrix columns
+subset_merged$avg_value <- rowMeans(subset_merged[, -1], na.rm = TRUE)  # Exclude the 'symbol' column
+
+#remove any duplicates that keep getting added.
+subset_merged <- subset_merged %>% distinct(symbol, .keep_all = TRUE)
+
+# Reorder the 'symbol' factor based on the average value
+subset_merged$symbol <- factor(subset_merged$symbol, levels = subset_merged$symbol[order(subset_merged$avg_value)])
+
+# Reshape to long format
+df_long <- subset_merged %>%
+  gather(key = "variable", value = "value", -symbol, -avg_value)
+
+# Create the heatmap using ggplot2
+p <- ggplot(df_long, aes(x = variable, y = symbol, fill = value)) +
+  geom_tile(color = "black") +
+  scale_fill_gradient2(low = "deepskyblue", mid = "white", high = "deeppink4", midpoint = 0, limits = c(-12, 12), breaks = seq(-12, 12, by = 4)) + 
+  theme_minimal() +
+  labs(x = "Comparison", y = "Gene", title = "Heatmap") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) 
+
+ggsave("Figure4B_concordant.jpg", plot = p, width = 3, height = 5.5, dpi = 1000)
+print(p)
+
+```
+
+
+```{r}
+#FIGURE 4B (TYPEI HEATMAP)
+#3/4 conditions
+#SYSTEM 2 BASED
+#28 genes
+
+
+df1 <- subset(comp1_comp4_TL_q2, times_in_quadrant > 2)
+df2 <- subset(comp1_comp4_TL_q4, times_in_quadrant > 2)
+
+common_values <- c(df1$Uniprot_Symbol, df2$Uniprot_Symbol)
+
+common_values <- trimws(common_values)  # Optional: Remove any leading/trailing spaces
+
+subset_comp1 <- combined_comp1 %>% filter(Uniprot_Symbol %in% common_values)
+subset_comp1 <- subset_comp1[,c("Uniprot_Symbol","prot_log2FC","rna_log2FC")]
+colnames(subset_comp1)[2:3] <- paste0(colnames(subset_comp1)[2:3],"_comp1")
+
+subset_comp2 <- combined_comp2 %>% filter(Uniprot_Symbol %in% common_values)
+subset_comp2 <- subset_comp2[,c("Uniprot_Symbol","prot_log2FC","rna_log2FC")]
+colnames(subset_comp2)[2:3] <- paste0(colnames(subset_comp2)[2:3],"_comp2")
+
+subset_comp3 <- combined_comp3 %>% filter(Uniprot_Symbol %in% common_values)
+subset_comp3 <- subset_comp3[,c("Uniprot_Symbol","prot_log2FC","rna_log2FC")]
+colnames(subset_comp3)[2:3] <- paste0(colnames(subset_comp3)[2:3],"_comp3")
+
+subset_comp4 <- combined_comp4 %>% filter(Uniprot_Symbol %in% common_values)
+subset_comp4 <- subset_comp4[,c("Uniprot_Symbol","prot_log2FC","rna_log2FC")]
+colnames(subset_comp4)[2:3] <- paste0(colnames(subset_comp4)[2:3],"_comp4")
+
+merged_df <- merge(subset_comp1, subset_comp2, by = "Uniprot_Symbol", all = TRUE) # Merge df1 and df2
+merged_df <- merge(merged_df, subset_comp3, by = "Uniprot_Symbol", all = TRUE) # Merge with df3
+subset_merged <- merge(merged_df, subset_comp4, by = "Uniprot_Symbol", all = TRUE) # Merge with df4
+
+subset_merged <- subset_merged[,c(1,2,4,6,8,3,5,7,9)]
+colnames(subset_merged)[1] <- "symbol"
+
+#The following gene products were excluded from combined_comp because their proteins contained too many imputed values. The corresponding RNA log2FC values were also dropped at the same time. I am manually adding the RNA log2FC value back to subset_merged dataframe. 
+gene <- "Hmgb2"
+comp <- "comp2"
+df <- get(paste0("RNA_",comp,"_unique"))
+subset_merged[[paste0("rna_log2FC_",comp)]][subset_merged$symbol == gene] <- df$rna_log2FC[df$Ensembl_Symbol == gene]
+
+gene <- "Timd2"
+comp <- "comp3"
+df <- get(paste0("RNA_",comp,"_unique"))
+subset_merged[[paste0("rna_log2FC_",comp)]][subset_merged$symbol == gene] <- df$rna_log2FC[df$Ensembl_Symbol == gene]
+
+gene <- "Commd5"
+comp <- "comp4"
+df <- get(paste0("RNA_",comp,"_unique"))
+subset_merged[[paste0("rna_log2FC_",comp)]][subset_merged$symbol == gene] <- df$rna_log2FC[df$Ensembl_Symbol == gene]
+
+
+
+# Calculate the average value for each symbol across the matrix columns
+subset_merged$avg_value <- rowMeans(subset_merged[, -1], na.rm = TRUE)  # Exclude the 'symbol' column
+
+#subset_merged <- subset_merged %>%
+ # arrange(desc(avg_value)) %>%
+  #slice(c(1:6, (n() - 5):n()))  # Top 6 and bottom 6
+
+#remove any duplicates that keep getting added.
+subset_merged <- subset_merged %>% distinct(symbol, .keep_all = TRUE)
+
+# Reorder the 'symbol' factor based on the average value
+subset_merged$symbol <- factor(subset_merged$symbol, levels = subset_merged$symbol[order(subset_merged$avg_value)])
+
+# Reshape to long format
+df_long <- subset_merged %>%
+  gather(key = "variable", value = "value", -symbol, -avg_value)
+
+# Create the heatmap using ggplot2
+p <- ggplot(df_long, aes(x = variable, y = symbol, fill = value)) +
+  geom_tile(color = "black") +
+  scale_fill_gradient2(low = "deepskyblue", mid = "white", high = "deeppink4", midpoint = 0, limits = c(-3, 3), breaks = seq(-3, 3, by = 1)) + 
+  theme_minimal() +
+  labs(x = "Comparison", y = "Gene", title = "Heatmap") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) 
+
+ggsave("Figure4B_typeI.jpg", plot = p, width = 3, height = 9, dpi = 1000)
+print(p)
+
+```
+
+
+
+
+
+```{r}
+TF <- read.csv("script3_required_files/Mus_musculus_TF.csv")
+colnames(TF)[colnames(TF) == "Ensembl"] <- "Ensembl_ID"
+
+TF_detected <- subset(unique_ids, unique_ids$Ensembl_ID %in% TF$Ensembl_ID)
+```
+
+
+```{r}
+#Loops through all 1-12 protein comparisons and creates new data frame "combined_comp1_TFS" that only includes the detected transcription factors
+
+for (i in 1:12) {
+  #Calls up the original dataframe and defines it as original_df
+  original_df <- get(paste0("combined_comp", i))
+  
+  #filters data to only includes Transcription Factors. 
+  unique_df <- original_df %>% filter(original_df$Ensembl_ID %in% TF$Ensembl_ID)
+  
+  #merges dataframes to keep the TF "Family" column
+  unique_df <- merge(unique_df,TF, by = "Ensembl_ID", all.x = TRUE)
+  
+  #removes excess columns 
+  unique_df <- unique_df[,c(1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,18)]
+  
+  #renames column name
+  colnames(unique_df)[colnames(unique_df) == "Family"] <- "TF_Family"
+  
+  #creates new data frame with dynamic name 
+  assign(paste0("combined_comp",i, "_TFS"), unique_df)
+  
+  }
+
+```
+
+```{r}
+#Looks for transcription factors in each comparison
+#SEX COMP1_COMP4
+comp1_comp4_TFS_TL_both <- subset(comp1_comp4_TL_both, Ensembl_ID %in% TF$Ensembl_ID)
+comp1_comp4_TFS_TL_NA <- subset(comp1_comp4_TL_NA, Ensembl_ID %in% TF$Ensembl_ID)
+comp1_comp4_TFS_TL_neither <- subset(comp1_comp4_TL_neither, Ensembl_ID %in% TF$Ensembl_ID)
+comp1_comp4_TFS_TL_opposite <- subset(comp1_comp4_TL_opposite, Ensembl_ID %in% TF$Ensembl_ID)
+comp1_comp4_TFS_TL_prot_only <- subset(comp1_comp4_TL_prot_only, Ensembl_ID %in% TF$Ensembl_ID)
+comp1_comp4_TFS_TL_rna_only <- subset(comp1_comp4_TL_rna_only, Ensembl_ID %in% TF$Ensembl_ID)
+
+comp1_comp4_TFS_TL_q1 <- subset(comp1_comp4_TL_q1, Ensembl_ID %in% TF$Ensembl_ID)
+comp1_comp4_TFS_TL_q2 <- subset(comp1_comp4_TL_q2, Ensembl_ID %in% TF$Ensembl_ID)
+comp1_comp4_TFS_TL_q3 <- subset(comp1_comp4_TL_q3, Ensembl_ID %in% TF$Ensembl_ID)
+comp1_comp4_TFS_TL_q4 <- subset(comp1_comp4_TL_q4, Ensembl_ID %in% TF$Ensembl_ID)
+comp1_comp4_TFS_TL_sq1 <- subset(comp1_comp4_TL_sq1, Ensembl_ID %in% TF$Ensembl_ID)
+comp1_comp4_TFS_TL_sq2 <- subset(comp1_comp4_TL_sq2, Ensembl_ID %in% TF$Ensembl_ID)
+comp1_comp4_TFS_TL_sq3 <- subset(comp1_comp4_TL_sq3, Ensembl_ID %in% TF$Ensembl_ID)
+comp1_comp4_TFS_TL_sq4 <- subset(comp1_comp4_TL_sq4, Ensembl_ID %in% TF$Ensembl_ID)
+
+
+#ZONE COMP5_COMP8
+comp5_comp8_TFS_TL_both <- subset(comp5_comp8_TL_both, Ensembl_ID %in% TF$Ensembl_ID)
+comp5_comp8_TFS_TL_NA <- subset(comp5_comp8_TL_NA, Ensembl_ID %in% TF$Ensembl_ID)
+comp5_comp8_TFS_TL_neither <- subset(comp5_comp8_TL_neither, Ensembl_ID %in% TF$Ensembl_ID)
+comp5_comp8_TFS_TL_opposite <- subset(comp5_comp8_TL_opposite, Ensembl_ID %in% TF$Ensembl_ID)
+comp5_comp8_TFS_TL_prot_only <- subset(comp5_comp8_TL_prot_only, Ensembl_ID %in% TF$Ensembl_ID)
+comp5_comp8_TFS_TL_rna_only <- subset(comp5_comp8_TL_rna_only, Ensembl_ID %in% TF$Ensembl_ID)
+
+comp5_comp8_TFS_TL_q1 <- subset(comp5_comp8_TL_q1, Ensembl_ID %in% TF$Ensembl_ID)
+comp5_comp8_TFS_TL_q2 <- subset(comp5_comp8_TL_q2, Ensembl_ID %in% TF$Ensembl_ID)
+comp5_comp8_TFS_TL_q3 <- subset(comp5_comp8_TL_q3, Ensembl_ID %in% TF$Ensembl_ID)
+comp5_comp8_TFS_TL_q4 <- subset(comp5_comp8_TL_q4, Ensembl_ID %in% TF$Ensembl_ID)
+comp5_comp8_TFS_TL_sq1 <- subset(comp5_comp8_TL_sq1, Ensembl_ID %in% TF$Ensembl_ID)
+comp5_comp8_TFS_TL_sq2 <- subset(comp5_comp8_TL_sq2, Ensembl_ID %in% TF$Ensembl_ID)
+comp5_comp8_TFS_TL_sq3 <- subset(comp5_comp8_TL_sq3, Ensembl_ID %in% TF$Ensembl_ID)
+comp5_comp8_TFS_TL_sq4 <- subset(comp5_comp8_TL_sq4, Ensembl_ID %in% TF$Ensembl_ID)
+
+
+#METABOLISM COMP9_COMP12
+comp9_comp12_TFS_TL_both <- subset(comp9_comp12_TL_both, Ensembl_ID %in% TF$Ensembl_ID)
+comp9_comp12_TFS_TL_NA <- subset(comp9_comp12_TL_NA, Ensembl_ID %in% TF$Ensembl_ID)
+comp9_comp12_TFS_TL_neither <- subset(comp9_comp12_TL_neither, Ensembl_ID %in% TF$Ensembl_ID)
+comp9_comp12_TFS_TL_opposite <- subset(comp9_comp12_TL_opposite, Ensembl_ID %in% TF$Ensembl_ID)
+comp9_comp12_TFS_TL_prot_only <- subset(comp9_comp12_TL_prot_only, Ensembl_ID %in% TF$Ensembl_ID)
+comp9_comp12_TFS_TL_rna_only <- subset(comp9_comp12_TL_rna_only, Ensembl_ID %in% TF$Ensembl_ID)
+
+comp9_comp12_TFS_TL_q1 <- subset(comp9_comp12_TL_q1, Ensembl_ID %in% TF$Ensembl_ID)
+comp9_comp12_TFS_TL_q2 <- subset(comp9_comp12_TL_q2, Ensembl_ID %in% TF$Ensembl_ID)
+comp9_comp12_TFS_TL_q3 <- subset(comp9_comp12_TL_q3, Ensembl_ID %in% TF$Ensembl_ID)
+comp9_comp12_TFS_TL_q4 <- subset(comp9_comp12_TL_q4, Ensembl_ID %in% TF$Ensembl_ID)
+comp9_comp12_TFS_TL_sq1 <- subset(comp9_comp12_TL_sq1, Ensembl_ID %in% TF$Ensembl_ID)
+comp9_comp12_TFS_TL_sq2 <- subset(comp9_comp12_TL_sq2, Ensembl_ID %in% TF$Ensembl_ID)
+comp9_comp12_TFS_TL_sq3 <- subset(comp9_comp12_TL_sq3, Ensembl_ID %in% TF$Ensembl_ID)
+comp9_comp12_TFS_TL_sq4 <- subset(comp9_comp12_TL_sq4, Ensembl_ID %in% TF$Ensembl_ID)
+
+```
+
+
+
+
+
+```{r}
+#Figure 4G
+#SEX TRANSCRIPTION FACTOR HEATMAP
+#3/4 conditions
+#SYSTEM 2 BASED
+
+#TypeII
+df1 <- subset(comp1_comp4_TFS_TL_q1, times_in_quadrant > 2)
+df2 <- subset(comp1_comp4_TFS_TL_q3, times_in_quadrant > 2)
+#Concordant
+df3 <- subset(comp1_comp4_TFS_TL_sq1, times_in_quadrant > 2)
+df4 <- subset(comp1_comp4_TFS_TL_sq3, times_in_quadrant > 2)
+#TypeI
+df5 <- subset(comp1_comp4_TFS_TL_q2, times_in_quadrant > 2)
+df6 <- subset(comp1_comp4_TFS_TL_q4, times_in_quadrant > 2)
+#TypeIII
+df7 <- subset(comp1_comp4_TFS_TL_sq2, times_in_quadrant > 2)
+df8 <- subset(comp1_comp4_TFS_TL_sq4, times_in_quadrant > 2)
+
+common_values <- c(df1$Uniprot_Symbol, df2$Uniprot_Symbol, df3$Uniprot_Symbol, df4$Uniprot_Symbol, df5$Uniprot_Symbol, df6$Uniprot_Symbol, df7$Uniprot_Symbol, df8$Uniprot_Symbol)
+common_values <- trimws(common_values)  # Optional: Remove any leading/trailing spaces
+
+
+subset_comp1 <- combined_comp1 %>% filter(Uniprot_Symbol %in% common_values)
+subset_comp1 <- subset_comp1[,c("Uniprot_Symbol","prot_log2FC","rna_log2FC")]
+colnames(subset_comp1)[2:3] <- paste0(colnames(subset_comp1)[2:3],"_comp1")
+
+subset_comp2 <- combined_comp2 %>% filter(Uniprot_Symbol %in% common_values)
+subset_comp2 <- subset_comp2[,c("Uniprot_Symbol","prot_log2FC","rna_log2FC")]
+colnames(subset_comp2)[2:3] <- paste0(colnames(subset_comp2)[2:3],"_comp2")
+
+subset_comp3 <- combined_comp3 %>% filter(Uniprot_Symbol %in% common_values)
+subset_comp3 <- subset_comp3[,c("Uniprot_Symbol","prot_log2FC","rna_log2FC")]
+colnames(subset_comp3)[2:3] <- paste0(colnames(subset_comp3)[2:3],"_comp3")
+
+subset_comp4 <- combined_comp4 %>% filter(Uniprot_Symbol %in% common_values)
+subset_comp4 <- subset_comp4[,c("Uniprot_Symbol","prot_log2FC","rna_log2FC")]
+colnames(subset_comp4)[2:3] <- paste0(colnames(subset_comp4)[2:3],"_comp4")
+
+merged_df <- merge(subset_comp1, subset_comp2, by = "Uniprot_Symbol", all = TRUE) # Merge df1 and df2
+merged_df <- merge(merged_df, subset_comp3, by = "Uniprot_Symbol", all = TRUE) # Merge with df3
+subset_merged <- merge(merged_df, subset_comp4, by = "Uniprot_Symbol", all = TRUE) # Merge with df4
+
+subset_merged <- subset_merged[,c(1,2,4,6,8,3,5,7,9)]
+colnames(subset_merged)[1] <- "symbol"
+
+#The following gene products were excluded from combined_comp because their proteins contained too many imputed values. The corresponding RNA log2FC values were also dropped at the same time. I am manually adding the RNA log2FC value back to subset_merged dataframe. 
+gene <- "Hmgb2"
+comp <- "comp2"
+df <- get(paste0("RNA_",comp,"_unique"))
+subset_merged[[paste0("rna_log2FC_",comp)]][subset_merged$symbol == gene] <- df$rna_log2FC[df$Ensembl_Symbol == gene]
+
+
+# Calculate the average value for each symbol across the matrix columns
+subset_merged$avg_value <- rowMeans(subset_merged[, -1], na.rm = TRUE)  # Exclude the 'symbol' column
+
+#subset_merged <- subset_merged %>%
+ # arrange(desc(avg_value)) %>%
+  #slice(c(1:6, (n() - 5):n()))  # Top 6 and bottom 6
+
+#remove any duplicates that keep getting added.
+subset_merged <- subset_merged %>% distinct(symbol, .keep_all = TRUE)
+
+# Reorder the 'symbol' factor based on the average value
+subset_merged$symbol <- factor(subset_merged$symbol, levels = subset_merged$symbol[order(subset_merged$avg_value)])
+
+# Reshape to long format
+df_long <- subset_merged %>%
+  gather(key = "variable", value = "value", -symbol, -avg_value)
+
+# Create the heatmap using ggplot2
+p <- ggplot(df_long, aes(x = variable, y = symbol, fill = value)) +
+  geom_tile(color = "black") +
+  scale_fill_gradient2(low = "deepskyblue", mid = "white", high = "deeppink4", midpoint = 0, limits = c(-3, 3), breaks = seq(-3, 3, by = 1)) + 
+  theme_minimal() +
+  labs(x = "Comparison", y = "Gene", title = "Heatmap") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) 
+
+ggsave("Figure4G.jpg", plot = p, width = 3, height = 2.2, dpi = 1000)
+print(p)
+
+```
+
+
+
+
+
+```{r}
+#Figure 5A
+#SYSTEM 2 GRAPH FASTING/FEEDING (COMP9) (Coloring by Quadrant)
+
+#Version of the graph where only points in quadrants are shown and points are colored by quadrant.
+specific_labels <- c("Srebf1","Mid1ip1","Pdk4","Pdcd4","Tf","Pck1","Elovl6","Fasn","Acly","Acaca","Acacb","Aacs","Thrsp","Pklr","Insig1","Sds","Slc8b1","Acot1","Pck1","Cebpa","Slc25a47","Bhlhe40","Mvd")
+
+#Specify comparison to plot. 
+comparison <- "combined_comp9"
+plotname <- "plot9"
+graphname <- "Female PC (Fed/Starved)"
+xname <- "RNA log2FC (Fed/Starved)"
+yname <- "Protein log2FC (Fed/Starved)"
+
+data_qs <- get(paste0(comparison,"_quadrants_sig"))
+yqs <- data_qs$prot_log2FC
+xqs <- data_qs$rna_log2FC
+
+
+# Create a new column to define the shape
+data_qs$shape_type <- ifelse(data_qs$total_imputed == 0, 1, 2)  # 1 for circle, 2 for triangle
+
+p3 <- ggplot(data_qs,aes(x=xqs, y=yqs, color = system2, shape = as.factor(shape_type), label = Ensembl_Symbol)) +geom_hline(yintercept = 0, color = "black", size = 0.2) +geom_vline(xintercept = 0, color = "black", size = 0.2) + geom_point(size = 2.5, show.legend = FALSE) +labs(title = graphname, x = xname, y = yname) + theme_minimal() +theme(axis.text = element_text(size = 15)) + geom_abline(slope = 1, intercept = 0, color = "slategrey", linetype = "dashed", size = 0.5) +geom_text_repel(aes(label = ifelse(Uniprot_Symbol %in% specific_labels, Uniprot_Symbol, NA)), max.overlaps=100, color = "black") +coord_fixed(ratio = 1) + scale_x_continuous(breaks = seq(-10, 8, by = 2)) + scale_y_continuous(breaks = seq(-10, 10, by = 2)) +scale_color_manual(values =c("q1" = "cyan4", "q2" = "deeppink1", "q3" = "cyan4", "q4" = "deeppink1", "sq1" = "goldenrod1", "sq2" = "black", "sq3" = "goldenrod1", "sq4"= "black", "NA"="gray75"))+
+  scale_shape_manual(values = c("1" = 16, "2" = 18)) +theme(legend.position = "none")
+
+
+#+geom_text_repel(color = "black")
+#+geom_text_repel(aes(label = ifelse(Uniprot_Symbol %in% specific_labels, Uniprot_Symbol, NA)), max.overlaps=100, color = "black")
+#ggsave(paste0(plotname,"c.jpg"), plot = p3, width = 6, height = 4, dpi = 1000)
+
+ggsave("Figure5A.jpg", plot = p3, width = 5, height = 5, dpi = 1000)
+print(p3)
+```
+
+
+
+```{r}
+#Figure 5B 
+#FIGURE 5B TYPEII HEATMAP 
+#4/4 conditions
+#SYSTEM 2 BASED
+#28 genes
+
+df1 <- subset(comp9_comp12_TL_q1, times_in_quadrant > 3)
+df2 <- subset(comp9_comp12_TL_q3, times_in_quadrant > 3)
+
+common_values <- c(df1$Uniprot_Symbol, df2$Uniprot_Symbol)
+
+#Removes Hao2 because this protein was not present in the combined_comp2 dataset because imputed values were found in both groups (i.e. one group did not have 0 imputed values which is required for inclusion). 
+#common_values <- gsub("Hao2", "", common_values)
+#common_values <- gsub("St3gal6", "", common_values)
+#common_values <- gsub("Kctd12", "", common_values)
+common_values <- trimws(common_values)  # Optional: Remove any leading/trailing spaces
+
+
+subset_comp9 <- combined_comp9 %>% filter(Uniprot_Symbol %in% common_values)
+subset_comp9 <- subset_comp9[,c("Uniprot_Symbol","prot_log2FC","rna_log2FC")]
+colnames(subset_comp9)[2:3] <- paste0(colnames(subset_comp9)[2:3],"_comp9")
+
+subset_comp10 <- combined_comp10 %>% filter(Uniprot_Symbol %in% common_values)
+subset_comp10 <- subset_comp10[,c("Uniprot_Symbol","prot_log2FC","rna_log2FC")]
+colnames(subset_comp10)[2:3] <- paste0(colnames(subset_comp10)[2:3],"_comp10")
+
+subset_comp11 <- combined_comp11 %>% filter(Uniprot_Symbol %in% common_values)
+subset_comp11 <- subset_comp11[,c("Uniprot_Symbol","prot_log2FC","rna_log2FC")]
+colnames(subset_comp11)[2:3] <- paste0(colnames(subset_comp11)[2:3],"_comp11")
+
+subset_comp12 <- combined_comp12 %>% filter(Uniprot_Symbol %in% common_values)
+subset_comp12 <- subset_comp12[,c("Uniprot_Symbol","prot_log2FC","rna_log2FC","Ensembl_ID")]
+colnames(subset_comp12)[2:3] <- paste0(colnames(subset_comp12)[2:3],"_comp12")
+
+merged_df <- merge(subset_comp9, subset_comp10, by = "Uniprot_Symbol", all = TRUE) # Merge df1 and df2
+merged_df <- merge(merged_df, subset_comp11, by = "Uniprot_Symbol", all = TRUE) # Merge with df3
+subset_merged <- merge(merged_df, subset_comp12, by = "Uniprot_Symbol", all = TRUE) # Merge with df4
+
+#Supplemental Table 1 and Figure 5D Data 
+write.csv(subset_merged, "Figure5D_data_&_Suppl.Table_1.csv", row.names = TRUE)
+
+subset_merged <- subset_merged[,c(1,2,4,6,8,3,5,7,9)]
+colnames(subset_merged)[1] <- "symbol"
+
+
+# Calculate the average value for each symbol across the matrix columns
+subset_merged$avg_value <- rowMeans(subset_merged[, -1], na.rm = TRUE)  # Exclude the 'symbol' column
+
+subset_merged <- subset_merged %>%
+  arrange(desc(avg_value)) %>%
+  slice(c(1:20, (n() - 19):n()))  
+
+#remove any duplicates that keep getting added.
+subset_merged <- subset_merged %>% distinct(symbol, .keep_all = TRUE)
+
+# Reorder the 'symbol' factor based on the average value
+subset_merged$symbol <- factor(subset_merged$symbol, levels = subset_merged$symbol[order(subset_merged$avg_value)])
+
+# Reshape to long format
+df_long <- subset_merged %>%
+  gather(key = "variable", value = "value", -symbol, -avg_value)
+
+# Create the heatmap using ggplot2
+p <- ggplot(df_long, aes(x = variable, y = symbol, fill = value)) +
+  geom_tile(color = "black") +
+  scale_fill_gradient2(low = "olivedrab3", mid = "white", high = "coral1", midpoint = 0, limits = c(-6, 7)) + 
+  theme_minimal() +
+  labs(x = "Comparison", y = "Gene", title = "Heatmap") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) 
+
+ggsave("Figure5B.jpg", plot = p, width = 3, height = 8, dpi = 1000)
+print(p)
+
+```
+
+
+
+```{r}
+#Figure 5C
+#METABOLISM TRANSCRIPTION FACTOR HEATMAP
+#3/4 conditions
+#SYSTEM 2 BASED
+
+#TypeII
+df1 <- subset(comp9_comp12_TFS_TL_q1, times_in_quadrant > 2)
+df2 <- subset(comp9_comp12_TFS_TL_q3, times_in_quadrant > 2)
+#Concordant
+df3 <- subset(comp9_comp12_TFS_TL_sq1, times_in_quadrant > 2)
+df4 <- subset(comp9_comp12_TFS_TL_sq3, times_in_quadrant > 2)
+#TypeI
+df5 <- subset(comp9_comp12_TFS_TL_q2, times_in_quadrant > 2)
+df6 <- subset(comp9_comp12_TFS_TL_q4, times_in_quadrant > 2)
+#TypeIII
+df7 <- subset(comp9_comp12_TFS_TL_sq2, times_in_quadrant > 2)
+df8 <- subset(comp9_comp12_TFS_TL_sq4, times_in_quadrant > 2)
+
+common_values <- c(df1$Uniprot_Symbol, df2$Uniprot_Symbol, df3$Uniprot_Symbol, df4$Uniprot_Symbol, df5$Uniprot_Symbol, df6$Uniprot_Symbol, df7$Uniprot_Symbol, df8$Uniprot_Symbol)
+
+#Removes Hao2 because this protein was not present in the combined_comp2 dataset because imputed values were found in both groups (i.e. one group did not have 0 imputed values which is required for inclusion). 
+#common_values <- gsub("Hao2", "", common_values)
+#common_values <- gsub("St3gal6", "", common_values)
+#common_values <- gsub("Hbp1", "", common_values)
+common_values <- trimws(common_values)  # Optional: Remove any leading/trailing spaces
+
+
+subset_comp9 <- combined_comp9 %>% filter(Uniprot_Symbol %in% common_values)
+subset_comp9 <- subset_comp9[,c("Uniprot_Symbol","prot_log2FC","rna_log2FC")]
+colnames(subset_comp9)[2:3] <- paste0(colnames(subset_comp9)[2:3],"_comp9")
+
+subset_comp10 <- combined_comp10 %>% filter(Uniprot_Symbol %in% common_values)
+subset_comp10 <- subset_comp10[,c("Uniprot_Symbol","prot_log2FC","rna_log2FC")]
+colnames(subset_comp10)[2:3] <- paste0(colnames(subset_comp10)[2:3],"_comp10")
+
+subset_comp11 <- combined_comp11 %>% filter(Uniprot_Symbol %in% common_values)
+subset_comp11 <- subset_comp11[,c("Uniprot_Symbol","prot_log2FC","rna_log2FC")]
+colnames(subset_comp11)[2:3] <- paste0(colnames(subset_comp11)[2:3],"_comp11")
+
+subset_comp12 <- combined_comp12 %>% filter(Uniprot_Symbol %in% common_values)
+subset_comp12 <- subset_comp12[,c("Uniprot_Symbol","prot_log2FC","rna_log2FC","Ensembl_ID")]
+colnames(subset_comp12)[2:3] <- paste0(colnames(subset_comp12)[2:3],"_comp12")
+
+merged_df <- merge(subset_comp9, subset_comp10, by = "Uniprot_Symbol", all = TRUE) # Merge df1 and df2
+merged_df <- merge(merged_df, subset_comp11, by = "Uniprot_Symbol", all = TRUE) # Merge with df3
+subset_merged <- merge(merged_df, subset_comp12, by = "Uniprot_Symbol", all = TRUE) # Merge with df4
+
+
+subset_merged <- subset_merged[,c(1,2,4,6,8,3,5,7,9)]
+colnames(subset_merged)[1] <- "symbol"
+
+
+# Calculate the average value for each symbol across the matrix columns
+subset_merged$avg_value <- rowMeans(subset_merged[, -1], na.rm = TRUE)  # Exclude the 'symbol' column
+
+#subset_merged <- subset_merged %>%
+ # arrange(desc(avg_value)) %>%
+  #slice(c(1:20, (n() - 19):n()))  # Top 6 and bottom 6
+
+#remove any duplicates that keep getting added.
+subset_merged <- subset_merged %>% distinct(symbol, .keep_all = TRUE)
+
+# Reorder the 'symbol' factor based on the average value
+subset_merged$symbol <- factor(subset_merged$symbol, levels = subset_merged$symbol[order(subset_merged$avg_value)])
+
+# Reshape to long format
+df_long <- subset_merged %>%
+  gather(key = "variable", value = "value", -symbol, -avg_value)
+
+# Create the heatmap using ggplot2
+p <- ggplot(df_long, aes(x = variable, y = symbol, fill = value)) +
+  geom_tile(color = "black") +
+  scale_fill_gradient2(low = "olivedrab3", mid = "white", high = "coral1", midpoint = 0, limits = c(-2, 5)) + 
+  theme_minimal() +
+  labs(x = "Comparison", y = "Gene", title = "Heatmap") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) 
+
+ggsave("Figure5C.jpg", plot = p, width = 3, height = 3, dpi = 1000)
+print(p)
+
+```
+
+
+
+```{r}
+#Across-gene analysis for Supplemental Figure 2
+#Calculates 3-replicate average protein and mRNA intensity for all 8 samples (F0hPC, M0hPC, F0hPP, M0hPP, F24hPC, M24hPC, F24hPP, and M24hPP)
+
+comparisons_to_perform <- list(
+  list(prot = "PROT_comp1", rna = "RNA_comp1", a = "F0hPC", b = "M0hPC"),
+  list(prot = "PROT_comp2", rna = "RNA_comp2", a = "F0hPP", b = "M0hPP"),
+  list(prot = "PROT_comp3", rna = "RNA_comp3", a = "F24hPC", b = "M24hPC"),
+  list(prot = "PROT_comp4", rna = "RNA_comp4", a = "F24hPP", b = "M24hPP")
+)
+
+# Loop through each set of variables
+for (i in 1:length(comparisons_to_perform)) {
+  
+
+  # Access the current set of variables
+  current_set <- comparisons_to_perform[[i]]
+  
+  # Use the variables from the current set
+  prot <- current_set$prot
+  rna <- current_set$rna
+  a <- current_set$a
+  b <- current_set$b
+
+df1 <- get(prot)
+df1$sample1_avg_prot_intensity <- rowMeans(df1[,7:9], na.rm = TRUE)
+df1$sample2_avg_prot_intensity <- rowMeans(df1[,10:12], na.rm = TRUE)
+df1 <- df1[,c("Uniprot_Accession","sample1_avg_prot_intensity","sample2_avg_prot_intensity",paste0(a,"_number_imputed_values"),paste0(b,"_number_imputed_values"))]
+df1 <- merge(df1,unique_ids,by = "Uniprot_Accession", all.x = TRUE)
+
+df2 <- get(rna)
+df2$sample1_avg_rna_intensity <- rowMeans(df2[,10:12], na.rm = TRUE)
+df2$sample2_avg_rna_intensity <- rowMeans(df2[,13:15], na.rm = TRUE)
+df2 <- df2[,c("Ensembl_ID","sample1_avg_rna_intensity","sample2_avg_rna_intensity")]
+df2 <- df2 %>% filter(df2$Ensembl_ID %in% unique_ids$Ensembl_ID)
+
+merged <- merge(df1,df2, by = "Ensembl_ID", all.x = TRUE)
+merged1 <- merged[,c("Ensembl_ID","Ensembl_Symbol","Uniprot_Accession","Uniprot_Symbol","sample1_avg_prot_intensity","sample1_avg_rna_intensity",paste0(a,"_number_imputed_values"))]
+merged1 <- unique(merged1)
+colnames(merged1)[5] <- "avg_prot_intensity"
+colnames(merged1)[6] <- "avg_rna_intensity"
+colnames(merged1)[7] <- "total_imputed"
+
+merged2 <- merged[,c("Ensembl_ID","Ensembl_Symbol","Uniprot_Accession","Uniprot_Symbol","sample2_avg_prot_intensity","sample2_avg_rna_intensity",paste0(b,"_number_imputed_values"))]
+merged2 <- unique(merged2)
+colnames(merged2)[5] <- "avg_prot_intensity"
+colnames(merged2)[6] <- "avg_rna_intensity"
+colnames(merged2)[7] <- "total_imputed"
+
+
+ #creates new data frame with dynamic name 
+  assign(paste0(a,"_intensities"), merged1)
+  
+  assign(paste0(b,"_intensities"), merged2)
+
+}
+
+```
+
+
+
+
+```{r}
+#Supplemental Figure 2B Data
+#Across-gene correlation
+
+#Calculates Slope, R-squared, and R for all protein vs mRNA across-gene intensity plots
+
+summary_df <- data.frame(matrix(ncol = 5, nrow = 8))
+colnames(summary_df) <- c("Slope_lm_function","R_squared_lm_function","R_linear_lm_function","Pearson_R_cor.test_function","Spearman_Rho_cor.test_function")
+
+rownames(summary_df) <- c(
+"F0hPC",
+"F0hPP",
+"F24hPC",
+"F24hPP",
+"M0hPC",
+"M0hPP",
+"M24hPC",
+"M24hPP"
+)
+
+comparisons_to_perform <- list("F0hPC",
+"F0hPP",
+"F24hPC",
+"F24hPP",
+"M0hPC",
+"M0hPP",
+"M24hPC",
+"M24hPP")
+
+# Loop through each set of variables
+for (i in 1:length(comparisons_to_perform)) {
+
+#reference data
+data <- get(paste0(comparisons_to_perform[[i]],"_intensities"))
+
+#exclude anything where avg_rna_intensity = 0 which give infinitely small numbers. 
+data <- subset(data, avg_rna_intensity > 0)
+
+#model <- lm(log10(data$avg_prot_intensity) ~ log10(data$avg_rna_intensity), data = data)
+y <- log10(data$avg_prot_intensity)
+x <- log10(data$avg_rna_intensity)
+
+# Fits data to linear model
+model <- lm(y ~ x, data = data)
+
+
+# Extract R-squared value, slope, and R values. R is calculated by taking square root of R-squared.
+r_squared <- summary(model)$r.squared
+slope <- coef(model)[2] # Get the slope of the linear model
+r_linear <- sign(slope) * sqrt(r_squared) # Apply the sign of the slope
+
+#Calculates Pearson R using different function
+result <- cor.test(x, y, method = "pearson")
+pearson_r <- result$estimate
+
+#Calculates Spearman Rho using different function
+result <- cor.test(x, y, method = "spearman")
+spearman_rho <- result$estimate
+
+
+summary_df[i,] <- c(slope, r_squared, r_linear, pearson_r, spearman_rho)
+
+}
+
+write.csv(summary_df, file = paste0("SuppFigure2B_across-gene_data.csv"), row.names = TRUE, col.names = TRUE)
+
+```
+
+
+
+```{r}
+#Supplemental Figure 2C 
+#Across-gene correlation plot
+
+object <- M0hPC_intensities
+
+#exclude anything where avg_rna_intensity = 0 which give infinitely small numbers. 
+object_subset <- subset(object, avg_rna_intensity > 0)
+
+# Fits data to linear model
+model <- lm(log10(object_subset$avg_prot_intensity) ~ log10(object_subset$avg_rna_intensity), data = object_subset)
+
+# Extract R-squared value for linear fit
+r_squared <- summary(model)$r.squared
+
+# Add a condition for labeling specific symbols
+#abundance_df$label <- ifelse(abundance_df$Symbol %in% c("Alb", "Apoe", "C3","Gnmt","Fabp1","H2bc3","Gapdh"), abundance_df$Symbol, NA)
+
+# Create a new column to define the shape
+object_subset$shape_type <- ifelse(object_subset$total_imputed == 0, 1, 2)  # 1 for circle, 2 for diamond
+
+specific_labels <- c("Alb","Apob","Apoa2","C3","Selenop","Serpina1b","Ndufa9","Ndufa4","Cps1")
+
+
+# Create the plot
+p <- ggplot(object_subset, aes(x = log10(object_subset$avg_rna_intensity), y = log10(object_subset$avg_prot_intensity), shape = as.factor(shape_type))) +geom_point(size = 2.5, show.legend = FALSE, color = "darkslategray") +geom_smooth(method = "lm", color = "royalblue1", size= 0.6, se = FALSE, aes(group = 1)) +geom_abline(slope = 2, intercept = -4, color = "green", linetype = "dashed", size = 0.8) +geom_abline(slope = 2, intercept = 4, color = "darkorange1", linetype = "dashed", size = 0.8) +geom_text_repel(aes(label = ifelse(Ensembl_Symbol %in% specific_labels, Ensembl_Symbol, NA)), max.overlaps = 40, color = "black") +theme_minimal() +labs(x = "log10(mRNA abundance)", y = "log10(protein abundance)", title = "Protein vs Transcript Abundance (log10 Transformed)") +theme(plot.title = element_text(hjust = 0.5)) +xlim(0, 7) +ylim(2, 8) +scale_shape_manual(values = c("1" = 16, "2" = 18)) #+theme(panel.grid = element_blank())
+
+ggsave("SuppFigure2C.jpg", plot = p, width = 6, height = 5, dpi = 1000)
+print(p)
+
+
+```
+
+
+
+```{r}
+#Supplemental Figure 2D 
+#Within-gene correlation plot
+
+#Specify comparison to plot. 
+comparison <- "combined_comp7"
+plotname <- "S2_plot7"
+graphname <- "Male Fed (PC/PP)"
+xname <- "RNA log2FC (PC/PP)"
+yname <- "Protein log2FC (PC/PP)"
+
+#Defines variables for these plots. 
+data <- get(comparison)
+y <- data$prot_log2FC
+x <- data$rna_log2FC
+
+
+# Fits data to linear model
+model <- lm(y ~ x, data = data)
+
+# Extract R-squared value for linear fit
+r_squared <- summary(model)$r.squared
+slope <- coef(model)[2] # Get the slope of the linear model
+r_linear <- sign(slope) * sqrt(r_squared) # Apply the sign of the slope
+
+
+# Create a new column to define the shape
+data$shape_type <- ifelse(data$total_imputed == 0, 1, 2)  # 1 for circle, 2 for triangle
+
+#Version of the graph where only points in quadrants are shown and points are colored by quadrant.
+specific_labels <- c("Glul","Cd36","Cyp2a5","Lhpp","Oat","Slc1a2","Cdh1","Sds","Hsd17b6","Aldh1b1","Bdh2","Cryl1")
+
+
+p1 <- ggplot(data,aes(x=x,y=y, shape = as.factor(shape_type))) +geom_hline(yintercept = 0, size = 0.2) +geom_vline(xintercept = 0, color = "black", size = 0.2) +geom_point(size = 2.5, show.legend = FALSE, color = "darkslategray") +labs(title = graphname, x = xname, y = yname) +theme_minimal() +theme(axis.text = element_text(size = 15)) +geom_abline(slope = 1, intercept = 0, color = "firebrick1", linetype = "dashed", size = 0.6) +geom_text_repel(aes(label = ifelse(Uniprot_Symbol %in% specific_labels, Uniprot_Symbol, NA)), max.overlaps=100, color = "black") +coord_fixed(ratio = 1) +geom_smooth(method = "lm", color = "royalblue1", size= 0.6, se = FALSE, aes(group = 1)) +scale_shape_manual(values = c("1" = 16, "2" = 18)) +theme(legend.position = "none") 
+
+
+ggsave("SuppFigure2D.jpg", plot = p1, width = 6, height = 5, dpi = 1000)
+print(p1)
+
+
+```
+
+
+
+
+```{r}
+#Supplemental Figure 3A
+#UPSET PLOT for CONCORDANT SEX GENES
+
+# List of PC Concordant genes (q1)
+data_list <- list(
+ PP_Starved = combined_comp4_sq1$Uniprot_Symbol,
+  PC_Starved = combined_comp3_sq1$Uniprot_Symbol,
+  PP_Fed = combined_comp2_sq1$Uniprot_Symbol,
+  PC_Fed = combined_comp1_sq1$Uniprot_Symbol
+)
+# Convert the list to a binary matrix for UpSetR
+all_elements <- unique(unlist(data_list))
+
+binary_matrix_PC <- as.data.frame(t(sapply(all_elements, function(x) {
+  sapply(data_list, function(set) as.numeric(x %in% set))
+})))
+
+
+# List of PP Concordant genes (q4)
+data_list <- list(
+ PP_Starved = combined_comp4_sq3$Uniprot_Symbol,
+  PC_Starved = combined_comp3_sq3$Uniprot_Symbol,
+  PP_Fed = combined_comp2_sq3$Uniprot_Symbol,
+  PC_Fed = combined_comp1_sq3$Uniprot_Symbol
+)
+# Convert the list to a binary matrix for UpSetR
+
+all_elements <- unique(unlist(data_list))
+
+binary_matrix_PP <- as.data.frame(t(sapply(all_elements, function(x) {
+  sapply(data_list, function(set) as.numeric(x %in% set))
+})))
+
+
+
+#Merges the two binary_matrix dataframes together keeping all rows. 
+binary_matrix_merge <- bind_rows(binary_matrix_PC,binary_matrix_PP)
+
+colnames(binary_matrix_merge) <- names(data_list)
+
+# Save the plot
+jpeg("SuppFigure3A.jpg", width = 8, height = 6, units = "in", res = 1000)
+
+# Create the upset plot
+upset(
+  binary_matrix_merge,
+  sets = colnames(binary_matrix_merge),
+  sets.bar.color = c("lightpink1","cadetblue1","firebrick","royalblue"),
+  matrix.color = "black",
+  main.bar.color = "goldenrod1",
+  keep.order = TRUE,
+  order.by = "freq", #degree
+  decreasing = FALSE,
+  text.scale = 1.5,
+  shade.color = "gray",
+  point.size = 3.5,
+  line.size = 1
+)
+
+dev.off()
+
+
+
+upset(
+  binary_matrix_merge,
+  sets = colnames(binary_matrix_merge),
+  sets.bar.color = c("lightpink1","cadetblue1","firebrick","royalblue"),
+  matrix.color = "black",
+  main.bar.color = "goldenrod1",
+  keep.order = TRUE,
+  order.by = "freq", #degree
+  decreasing = FALSE,
+  text.scale = 1.5,
+  shade.color = "gray",
+  point.size = 3.5,
+  line.size = 1
+)
+```
+```{r}
+#Supplemental Figure 3C
+#HEATMAP of PP ZONATED CONCORDANT SEX GENES
+
+#PC_sex_genes <- subset(binary_matrix_merge, PC_Starved==1 & PC_Fed==1 & PP_Starved==0 & PP_Fed==0)
+PP_sex_genes <- subset(binary_matrix_merge, PC_Starved==0 & PC_Fed==0 & PP_Starved==1 & PP_Fed==1)
+
+#common_values <- row.names(PC_sex_genes)
+common_values <- row.names(PP_sex_genes)
+#common_values <- c(row.names(PC_sex_genes), row.names(PP_sex_genes))
+
+common_values <- trimws(common_values)  # Optional: Remove any leading/trailing spaces
+
+
+subset_comp1 <- combined_comp1 %>% filter(Uniprot_Symbol %in% common_values)
+subset_comp1 <- subset_comp1[,c("Uniprot_Symbol","prot_log2FC","rna_log2FC")]
+colnames(subset_comp1)[2:3] <- paste0(colnames(subset_comp1)[2:3],"_comp1")
+
+subset_comp2 <- combined_comp2 %>% filter(Uniprot_Symbol %in% common_values)
+subset_comp2 <- subset_comp2[,c("Uniprot_Symbol","prot_log2FC","rna_log2FC")]
+colnames(subset_comp2)[2:3] <- paste0(colnames(subset_comp2)[2:3],"_comp2")
+
+subset_comp3 <- combined_comp3 %>% filter(Uniprot_Symbol %in% common_values)
+subset_comp3 <- subset_comp3[,c("Uniprot_Symbol","prot_log2FC","rna_log2FC")]
+colnames(subset_comp3)[2:3] <- paste0(colnames(subset_comp3)[2:3],"_comp3")
+
+subset_comp4 <- combined_comp4 %>% filter(Uniprot_Symbol %in% common_values)
+subset_comp4 <- subset_comp4[,c("Uniprot_Symbol","prot_log2FC","rna_log2FC")]
+colnames(subset_comp4)[2:3] <- paste0(colnames(subset_comp4)[2:3],"_comp4")
+
+merged_df <- merge(subset_comp1, subset_comp2, by = "Uniprot_Symbol", all = TRUE) # Merge df1 and df2
+merged_df <- merge(merged_df, subset_comp3, by = "Uniprot_Symbol", all = TRUE) # Merge with df3
+subset_merged <- merge(merged_df, subset_comp4, by = "Uniprot_Symbol", all = TRUE) # Merge with df4
+
+subset_merged <- subset_merged[,c(1,2,4,6,8,3,5,7,9)]
+colnames(subset_merged)[1] <- "symbol"
+
+#The following gene products were excluded from combined_comp because their proteins contained too many imputed values. The corresponding RNA log2FC values were also dropped at the same time. I am manually adding the RNA log2FC value back to subset_merged dataframe. 
+gene <- "Eci3"
+comp <- "comp1"
+df <- get(paste0("RNA_",comp,"_unique"))
+subset_merged[[paste0("rna_log2FC_",comp)]][subset_merged$symbol == gene] <- df$rna_log2FC[df$Ensembl_Symbol == gene]
+
+gene <- "Eci3"
+comp <- "comp3"
+df <- get(paste0("RNA_",comp,"_unique"))
+subset_merged[[paste0("rna_log2FC_",comp)]][subset_merged$symbol == gene] <- df$rna_log2FC[df$Ensembl_Symbol == gene]
+
+
+# Calculate the average value for each symbol across the matrix columns
+subset_merged$avg_value <- rowMeans(subset_merged[, -1], na.rm = TRUE)  # Exclude the 'symbol' column
+
+
+#remove any duplicates that keep getting added.
+subset_merged <- subset_merged %>% distinct(symbol, .keep_all = TRUE)
+
+# Reorder the 'symbol' factor based on the average value
+subset_merged$symbol <- factor(subset_merged$symbol, levels = subset_merged$symbol[order(subset_merged$avg_value)])
+
+# Reshape to long format
+df_long <- subset_merged %>%
+  gather(key = "variable", value = "value", -symbol, -avg_value)
+
+# Create the heatmap using ggplot2
+p <- ggplot(df_long, aes(x = variable, y = symbol, fill = value)) +
+  geom_tile(color = "black") +
+  scale_fill_gradient2(low = "deepskyblue", mid = "white", high = "deeppink4", midpoint = 0, limits = c(-6, 10), breaks = seq(-6, 10, by = 4)) + 
+  theme_minimal() +
+  labs(x = "Comparison", y = "Gene", title = "Heatmap") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) 
+
+ggsave("SuppFigure3C.jpg", plot = p, width = 3, height = 3, dpi = 1000)
+print(p)
+
+```
+
+
+
+```{r}
+#Supplemental Figure 3D
+#HEATMAP of PC ZONATED CONCORDANT SEX GENES
+
+PC_sex_genes <- subset(binary_matrix_merge, PC_Starved==1 & PC_Fed==1 & PP_Starved==0 & PP_Fed==0)
+#PP_sex_genes <- subset(binary_matrix_merge, PC_Starved==0 & PC_Fed==0 & PP_Starved==1 & PP_Fed==1)
+
+common_values <- row.names(PC_sex_genes)
+#common_values <- row.names(PP_sex_genes)
+#common_values <- c(row.names(PC_sex_genes), row.names(PP_sex_genes))
+
+common_values <- trimws(common_values)  # Optional: Remove any leading/trailing spaces
+
+
+subset_comp1 <- combined_comp1 %>% filter(Uniprot_Symbol %in% common_values)
+subset_comp1 <- subset_comp1[,c("Uniprot_Symbol","prot_log2FC","rna_log2FC")]
+colnames(subset_comp1)[2:3] <- paste0(colnames(subset_comp1)[2:3],"_comp1")
+
+subset_comp2 <- combined_comp2 %>% filter(Uniprot_Symbol %in% common_values)
+subset_comp2 <- subset_comp2[,c("Uniprot_Symbol","prot_log2FC","rna_log2FC")]
+colnames(subset_comp2)[2:3] <- paste0(colnames(subset_comp2)[2:3],"_comp2")
+
+subset_comp3 <- combined_comp3 %>% filter(Uniprot_Symbol %in% common_values)
+subset_comp3 <- subset_comp3[,c("Uniprot_Symbol","prot_log2FC","rna_log2FC")]
+colnames(subset_comp3)[2:3] <- paste0(colnames(subset_comp3)[2:3],"_comp3")
+
+subset_comp4 <- combined_comp4 %>% filter(Uniprot_Symbol %in% common_values)
+subset_comp4 <- subset_comp4[,c("Uniprot_Symbol","prot_log2FC","rna_log2FC")]
+colnames(subset_comp4)[2:3] <- paste0(colnames(subset_comp4)[2:3],"_comp4")
+
+merged_df <- merge(subset_comp1, subset_comp2, by = "Uniprot_Symbol", all = TRUE) # Merge df1 and df2
+merged_df <- merge(merged_df, subset_comp3, by = "Uniprot_Symbol", all = TRUE) # Merge with df3
+subset_merged <- merge(merged_df, subset_comp4, by = "Uniprot_Symbol", all = TRUE) # Merge with df4
+
+subset_merged <- subset_merged[,c(1,2,4,6,8,3,5,7,9)]
+colnames(subset_merged)[1] <- "symbol"
+
+#The following gene products were excluded from combined_comp because their proteins contained too many imputed values. The corresponding RNA log2FC values were also dropped at the same time. I am manually adding the RNA log2FC value back to subset_merged dataframe. 
+gene <- "St3gal6"
+comp <- "comp2"
+df <- get(paste0("RNA_",comp,"_unique"))
+subset_merged[[paste0("rna_log2FC_",comp)]][subset_merged$symbol == gene] <- df$rna_log2FC[df$Ensembl_Symbol == gene]
+
+gene <- "St3gal6"
+comp <- "comp4"
+df <- get(paste0("RNA_",comp,"_unique"))
+subset_merged[[paste0("rna_log2FC_",comp)]][subset_merged$symbol == gene] <- df$rna_log2FC[df$Ensembl_Symbol == gene]
+
+gene <- "Kctd12"
+comp <- "comp2"
+df <- get(paste0("RNA_",comp,"_unique"))
+subset_merged[[paste0("rna_log2FC_",comp)]][subset_merged$symbol == gene] <- df$rna_log2FC[df$Ensembl_Symbol == gene]
+
+
+# Calculate the average value for each symbol across the matrix columns
+subset_merged$avg_value <- rowMeans(subset_merged[, -1], na.rm = TRUE)  # Exclude the 'symbol' column
+
+
+#remove any duplicates that keep getting added.
+subset_merged <- subset_merged %>% distinct(symbol, .keep_all = TRUE)
+
+# Reorder the 'symbol' factor based on the average value
+subset_merged$symbol <- factor(subset_merged$symbol, levels = subset_merged$symbol[order(subset_merged$avg_value)])
+
+# Reshape to long format
+df_long <- subset_merged %>%
+  gather(key = "variable", value = "value", -symbol, -avg_value)
+
+# Create the heatmap using ggplot2
+p <- ggplot(df_long, aes(x = variable, y = symbol, fill = value)) +
+  geom_tile(color = "black") +
+  scale_fill_gradient2(low = "deepskyblue", mid = "white", high = "deeppink4", midpoint = 0, limits = c(-6, 10), breaks = seq(-6, 10, by = 4)) + 
+  theme_minimal() +
+  labs(x = "Comparison", y = "Gene", title = "Heatmap") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) 
+
+ggsave("SuppFigure3D.jpg", plot = p, width = 3, height = 3, dpi = 1000)
+print(p)
+
+```
+
+
+
+```{r}
+#Supplemental Figure 3B
+#UPSET PLOT for TYPE1 SEX GENES
+
+
+# List of PC Concordant genes (q1)
+data_list <- list(
+ PP_Starved = combined_comp4_q2$Uniprot_Symbol,
+  PC_Starved = combined_comp3_q2$Uniprot_Symbol,
+  PP_Fed = combined_comp2_q2$Uniprot_Symbol,
+  PC_Fed = combined_comp1_q2$Uniprot_Symbol
+)
+# Convert the list to a binary matrix for UpSetR
+all_elements <- unique(unlist(data_list))
+
+binary_matrix_PC <- as.data.frame(t(sapply(all_elements, function(x) {
+  sapply(data_list, function(set) as.numeric(x %in% set))
+})))
+
+
+# List of PP Concordant genes (q4)
+data_list <- list(
+ PP_Starved = combined_comp4_q4$Uniprot_Symbol,
+  PC_Starved = combined_comp3_q4$Uniprot_Symbol,
+  PP_Fed = combined_comp2_q4$Uniprot_Symbol,
+  PC_Fed = combined_comp1_q4$Uniprot_Symbol
+)
+# Convert the list to a binary matrix for UpSetR
+all_elements <- unique(unlist(data_list))
+
+binary_matrix_PP <- as.data.frame(t(sapply(all_elements, function(x) {
+  sapply(data_list, function(set) as.numeric(x %in% set))
+})))
+
+
+
+#Merges the two binary_matrix dataframes together keeping all rows. 
+binary_matrix_merge <- bind_rows(binary_matrix_PC,binary_matrix_PP)
+
+colnames(binary_matrix_merge) <- names(data_list)
+
+#Supplemental Figure 3H Data
+fed_only_type1_sex_genes <- subset(binary_matrix_merge, PC_Starved==0 & PC_Fed==1 & PP_Starved==0 & PP_Fed==1)
+write.csv(fed_only_type1_sex_genes,"SuppFigure3H_data.csv")
+
+
+
+# Save the plot
+jpeg("SuppFigure3B.jpg", width = 8, height = 6, units = "in", res = 1000)
+
+# Create the upset plot
+upset(
+  binary_matrix_merge,
+  sets = colnames(binary_matrix_merge),
+  sets.bar.color = c("lightpink1","cadetblue1","firebrick","royalblue"),
+  matrix.color = "black",
+  main.bar.color = "deeppink1",
+  keep.order = TRUE,
+  order.by = "freq", #degree
+  decreasing = FALSE,
+  text.scale = 1.5,
+  shade.color = "gray",
+  point.size = 3.5,
+  line.size = 1
+)
+
+dev.off()
+
+
+
+upset(
+  binary_matrix_merge,
+  sets = colnames(binary_matrix_merge),
+  sets.bar.color = c("lightpink1","cadetblue1","firebrick","royalblue"),
+  matrix.color = "black",
+  main.bar.color = "deeppink1",
+  keep.order = TRUE,
+  order.by = "freq", #degree
+  decreasing = FALSE,
+  text.scale = 1.5,
+  shade.color = "gray",
+  point.size = 3.5,
+  line.size = 1
+)
+
+
+```
+
+
+
+```{r}
+#Supplemental Figure 3E
+#HEATMAP of PORTAL ZONATED TYPE1 SEX GENES
+
+#PC_sex_genes <- subset(binary_matrix_merge, PC_Starved==1 & PC_Fed==1 & PP_Starved==0 & PP_Fed==0)
+PP_sex_genes <- subset(binary_matrix_merge, PC_Starved==0 & PC_Fed==0 & PP_Starved==1 & PP_Fed==1)
+
+#common_values <- row.names(PC_sex_genes)
+common_values <- row.names(PP_sex_genes)
+#common_values <- c(row.names(PC_sex_genes), row.names(PP_sex_genes))
+
+common_values <- trimws(common_values)  # Optional: Remove any leading/trailing spaces
+
+
+subset_comp1 <- combined_comp1 %>% filter(Uniprot_Symbol %in% common_values)
+subset_comp1 <- subset_comp1[,c("Uniprot_Symbol","prot_log2FC","rna_log2FC")]
+colnames(subset_comp1)[2:3] <- paste0(colnames(subset_comp1)[2:3],"_comp1")
+
+subset_comp2 <- combined_comp2 %>% filter(Uniprot_Symbol %in% common_values)
+subset_comp2 <- subset_comp2[,c("Uniprot_Symbol","prot_log2FC","rna_log2FC")]
+colnames(subset_comp2)[2:3] <- paste0(colnames(subset_comp2)[2:3],"_comp2")
+
+subset_comp3 <- combined_comp3 %>% filter(Uniprot_Symbol %in% common_values)
+subset_comp3 <- subset_comp3[,c("Uniprot_Symbol","prot_log2FC","rna_log2FC")]
+colnames(subset_comp3)[2:3] <- paste0(colnames(subset_comp3)[2:3],"_comp3")
+
+subset_comp4 <- combined_comp4 %>% filter(Uniprot_Symbol %in% common_values)
+subset_comp4 <- subset_comp4[,c("Uniprot_Symbol","prot_log2FC","rna_log2FC")]
+colnames(subset_comp4)[2:3] <- paste0(colnames(subset_comp4)[2:3],"_comp4")
+
+merged_df <- merge(subset_comp1, subset_comp2, by = "Uniprot_Symbol", all = TRUE) # Merge df1 and df2
+merged_df <- merge(merged_df, subset_comp3, by = "Uniprot_Symbol", all = TRUE) # Merge with df3
+subset_merged <- merge(merged_df, subset_comp4, by = "Uniprot_Symbol", all = TRUE) # Merge with df4
+
+subset_merged <- subset_merged[,c(1,2,4,6,8,3,5,7,9)]
+colnames(subset_merged)[1] <- "symbol"
+
+
+# Calculate the average value for each symbol across the matrix columns
+subset_merged$avg_value <- rowMeans(subset_merged[, -1], na.rm = TRUE)  # Exclude the 'symbol' column
+
+#remove any duplicates that keep getting added.
+subset_merged <- subset_merged %>% distinct(symbol, .keep_all = TRUE)
+
+# Reorder the 'symbol' factor based on the average value
+subset_merged$symbol <- factor(subset_merged$symbol, levels = subset_merged$symbol[order(subset_merged$avg_value)])
+
+# Reshape to long format
+df_long <- subset_merged %>%
+  gather(key = "variable", value = "value", -symbol, -avg_value)
+
+# Create the heatmap using ggplot2
+p <- ggplot(df_long, aes(x = variable, y = symbol, fill = value)) +
+  geom_tile(color = "black") +
+  scale_fill_gradient2(low = "deepskyblue", mid = "white", high = "deeppink4", midpoint = 0, limits = c(-4, 2), breaks = seq(-4, 2, by = 1)) + 
+  theme_minimal() +
+  labs(x = "Comparison", y = "Gene", title = "Heatmap") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) 
+
+ggsave("SuppFigure3E.jpg", plot = p, width = 3, height = 2.2, dpi = 1000)
+print(p)
+
+```
+
+
+
+```{r}
+#Supplemental Figure 3F
+#HEATMAP of CENTRAL ZONATED TYPE1 SEX GENES
+
+PC_sex_genes <- subset(binary_matrix_merge, PC_Starved==1 & PC_Fed==1 & PP_Starved==0 & PP_Fed==0)
+
+common_values <- row.names(PC_sex_genes)
+
+#Removes Hao2 because this protein was not present in the combined_comp2 dataset because imputed values were found in both groups (i.e. one group did not have 0 imputed values which is required for inclusion). 
+common_values <- trimws(common_values)  # Optional: Remove any leading/trailing spaces
+
+subset_comp1 <- combined_comp1 %>% filter(Uniprot_Symbol %in% common_values)
+subset_comp1 <- subset_comp1[,c("Uniprot_Symbol","prot_log2FC","rna_log2FC")]
+colnames(subset_comp1)[2:3] <- paste0(colnames(subset_comp1)[2:3],"_comp1")
+
+subset_comp2 <- combined_comp2 %>% filter(Uniprot_Symbol %in% common_values)
+subset_comp2 <- subset_comp2[,c("Uniprot_Symbol","prot_log2FC","rna_log2FC")]
+colnames(subset_comp2)[2:3] <- paste0(colnames(subset_comp2)[2:3],"_comp2")
+
+subset_comp3 <- combined_comp3 %>% filter(Uniprot_Symbol %in% common_values)
+subset_comp3 <- subset_comp3[,c("Uniprot_Symbol","prot_log2FC","rna_log2FC")]
+colnames(subset_comp3)[2:3] <- paste0(colnames(subset_comp3)[2:3],"_comp3")
+
+subset_comp4 <- combined_comp4 %>% filter(Uniprot_Symbol %in% common_values)
+subset_comp4 <- subset_comp4[,c("Uniprot_Symbol","prot_log2FC","rna_log2FC")]
+colnames(subset_comp4)[2:3] <- paste0(colnames(subset_comp4)[2:3],"_comp4")
+
+merged_df <- merge(subset_comp1, subset_comp2, by = "Uniprot_Symbol", all = TRUE) # Merge df1 and df2
+merged_df <- merge(merged_df, subset_comp3, by = "Uniprot_Symbol", all = TRUE) # Merge with df3
+subset_merged <- merge(merged_df, subset_comp4, by = "Uniprot_Symbol", all = TRUE) # Merge with df4
+
+subset_merged <- subset_merged[,c(1,2,4,6,8,3,5,7,9)]
+colnames(subset_merged)[1] <- "symbol"
+
+#The following gene products were excluded from combined_comp because their proteins contained too many imputed values. The corresponding RNA log2FC values were also dropped at the same time. I am manually adding the RNA log2FC value back to subset_merged dataframe. 
+gene <- "Etfrf1"
+comp <- "comp4"
+df <- get(paste0("RNA_",comp,"_unique"))
+subset_merged[[paste0("rna_log2FC_",comp)]][subset_merged$symbol == gene] <- df$rna_log2FC[df$Ensembl_Symbol == gene]
+
+gene <- "Eif4enif1"
+comp <- "comp2"
+df <- get(paste0("RNA_",comp,"_unique"))
+subset_merged[[paste0("rna_log2FC_",comp)]][subset_merged$symbol == gene] <- df$rna_log2FC[df$Ensembl_Symbol == gene]
+
+gene <- "Eif4enif1"
+comp <- "comp4"
+df <- get(paste0("RNA_",comp,"_unique"))
+subset_merged[[paste0("rna_log2FC_",comp)]][subset_merged$symbol == gene] <- df$rna_log2FC[df$Ensembl_Symbol == gene]
+
+
+# Calculate the average value for each symbol across the matrix columns
+subset_merged$avg_value <- rowMeans(subset_merged[, -1], na.rm = TRUE)  # Exclude the 'symbol' column
+
+#remove any duplicates that keep getting added.
+subset_merged <- subset_merged %>% distinct(symbol, .keep_all = TRUE)
+
+# Reorder the 'symbol' factor based on the average value
+subset_merged$symbol <- factor(subset_merged$symbol, levels = subset_merged$symbol[order(subset_merged$avg_value)])
+
+# Reshape to long format
+df_long <- subset_merged %>%
+  gather(key = "variable", value = "value", -symbol, -avg_value)
+
+# Create the heatmap using ggplot2
+p <- ggplot(df_long, aes(x = variable, y = symbol, fill = value)) +
+  geom_tile(color = "black") +
+  scale_fill_gradient2(low = "deepskyblue", mid = "white", high = "deeppink4", midpoint = 0, limits = c(-4, 2), breaks = seq(-4, 2, by = 1)) + 
+  theme_minimal() +
+  labs(x = "Comparison", y = "Gene", title = "Heatmap") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) 
+
+ggsave("SuppFigure3F.jpg", plot = p, width = 3, height = 8, dpi = 1000)
+print(p)
+
+```
+
+
+
+
+
+
+
+
