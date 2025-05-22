@@ -1,6 +1,7 @@
 # Hepatocyte-Dual-Omics
 
 Dependencies:
+Other operating systems and versions of R / R-studio are likely compatible but have not been tested. 
 --R (v4.4.1)
 --R Studio (Version 2023.09.1+494)
 --R Packages: biomaRt (2.60.1), dplyr (1.1.4), SummarizedExperiment (1.34.0), ggplot2 (3.5.1), tibble (3.2.1), tidyr (1.3.1), PerformanceAnalytics (2.0.4), MSnbase (2.30.1), reshape2 (1.4.4), limma (3.60.6), UpSetR (1.4.0), ggrepel (0.9.6), plyr (1.8.9), and data.table (1.17.0)
