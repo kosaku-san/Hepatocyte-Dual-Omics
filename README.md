@@ -256,8 +256,3 @@ Error in scan(file = file, what = what, sep = sep, quote = quote, dec = dec,  :
   INTEGER() can only be applied to a 'integer', not a 'unknown type #29'
 
 
-
-
-
-
-![image](https://github.com/user-attachments/assets/dd800a15-6773-49e9-a381-f1b4200ec0d8)
