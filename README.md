@@ -29,9 +29,9 @@ Demo:
 No demo is necessary. The scripts can be directly run with the raw data included inside the “required_files” folders. 
 
 Run time: 
-Script_1 run time: 5 min; 36 sec 
-Script_2 run time: 0 min; 6 sec
-Script_3 run time: 0 min; 57 sec
+1. Script_1 run time: 5 min; 36 sec 
+2. Script_2 run time: 0 min; 6 sec
+3. Script_3 run time: 0 min; 57 sec
 
 Reproduction instructions: 
 All data required for reproducing our analysis and results is found inside the three “required_files” folders. Running the scripts as outlined above will reproduce our results. The attached scripts can be adapted to analyze similar data. 
