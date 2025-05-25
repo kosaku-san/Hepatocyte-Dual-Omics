@@ -1,11 +1,10 @@
 # Hepatocyte-Dual-Omics
 
-The scripts used to generate figures and tables for:\
-\
-*Landgraf et al., under review*\
-***Widespread discordance between mRNA, protein abundance, and functional output during metabolic transition***
+The scripts used to generate the figures and tables are:\
+Landgraf et al., under review.
+***Widespread Discordance Between mRNA, Protein Abundance, and Functional Output During Metabolic Transition***
 
-The priprint version can be viewed from https://doi.org/10.1101/2025.04.15.649020
+The preprint version is available at https://doi.org/10.1101/2025.04.15.649020.
 
 ------------------------------------------------------------------------
 
