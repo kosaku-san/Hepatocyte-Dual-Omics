@@ -5,7 +5,7 @@ The scripts used to generate the figures and tables for:
 Landgraf et al., 
 **Widespread Discordance Between mRNA, Protein Abundance, and Functional Output During Metabolic Transition** ***(under review)***
 
-The preprint version is available at https://doi.org/10.1101/2025.04.15.649020.
+The preprint version is available at https://pubmed.ncbi.nlm.nih.gov/40376090/.
 
 ------------------------------------------------------------------------
 
