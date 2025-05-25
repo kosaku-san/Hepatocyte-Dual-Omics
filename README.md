@@ -1,5 +1,12 @@
 # Hepatocyte-Dual-Omics
 
+Scripts used to generate the figures and tables for:\
+\
+*Landgraf et al., under review*\
+***Widespread discordance between mRNA expression, protein abundance, and de novo lipogenesis activity in hepatocytes during the fed-starvation transition***
+
+------------------------------------------------------------------------
+
 Dependencies: 
 --R (v4.4.1)
 --R Studio (Version 2023.09.1+494)
