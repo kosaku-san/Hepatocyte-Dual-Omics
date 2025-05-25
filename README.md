@@ -63,7 +63,7 @@ git clone https://github.com/kosaku-san/Hepatocyte-Dual-Omics
 ------------------------------------------------------------------------
 
 Demo:
-No demo is necessary. The scripts can be directly run with the raw data included inside the “required_files” folders. 
+No demo is necessary. The scripts can be directly run with the raw data included inside the `required_files` folders. 
 
 Run time: 
 1. Script_1 run time: 5 min; 36 sec 
