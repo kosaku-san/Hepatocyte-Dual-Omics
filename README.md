@@ -8,22 +8,34 @@ The preprint version is available at https://doi.org/10.1101/2025.04.15.649020.
 
 ------------------------------------------------------------------------
 
-Dependencies: 
---R (v4.4.1)
---R Studio (Version 2023.09.1+494)
---R Packages: biomaRt (2.60.1), dplyr (1.1.4), SummarizedExperiment (1.34.0), ggplot2 (3.5.1), tibble (3.2.1), tidyr (1.3.1), PerformanceAnalytics (2.0.4), MSnbase (2.30.1), reshape2 (1.4.4), limma (3.60.6), UpSetR (1.4.0), ggrepel (0.9.6), plyr (1.8.9), and data.table (1.17.0)
---Operating system: macOS Version 11.6.2 (Big Sur)
+## Software Versions
 
-Other operating systems and versions of R / R-studio are likely compatible but have not been tested.
+-   **Operating System:** macOS 11.6.2 (Big Sur)
 
-Versions the software has been tested on:
---R (v4.4.1)
---R Studio (Version 2023.09.1+494)
---R Packages: biomaRt (2.60.1), dplyr (1.1.4), SummarizedExperiment (1.34.0), ggplot2 (3.5.1), tibble (3.2.1), tidyr (1.3.1), PerformanceAnalytics (2.0.4), MSnbase (2.30.1), reshape2 (1.4.4), limma (3.60.6), UpSetR (1.4.0), ggrepel (0.9.6), plyr (1.8.9), and data.table (1.17.0)
---Operating system: macOS Version 11.6.2 (Big Sur)
+-   **R:** v4.4.1
 
-Non-standard hardware:
---None required
+-   **RStudio:** v2023.09.1+494
+
+-   **R Packages**
+
+    biomaRt (2.60.1),\
+    dplyr (1.1.4),\
+    SummarizedExperiment (1.34.0),\
+    ggplot2 (3.5.1),\
+    tibble (3.2.1),\
+    tidyr (1.3.1),\
+    PerformanceAnalytics (2.0.4),\
+    MSnbase (2.30.1),\
+    reshape2 (1.4.4),\
+    limma (3.60.6),\
+    UpSetR (1.4.0),\
+    ggrepel (0.9.6),\
+    plyr (1.8.9),\
+    data.table (1.17.0)
+
+-   *Note: Other operating systems and versions of R / R-studio are likely compatible but have not been tested. *
+
+Non-standard hardware is not required.
 
 ------------------------------------------------------------------------
 
