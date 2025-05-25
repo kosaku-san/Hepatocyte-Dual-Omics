@@ -10,7 +10,7 @@ The preprint version is available at https://doi.org/10.1101/2025.04.15.649020.
 
 ## Reproduction Instructions
 
-All data required to reproduce the analysis and results can be found in the three `required_files` folders. The corresponding outputs are stored in `output` folders.
+All data required for reproducing our analysis and results is found inside the three `required_files` folders. The corresponding outputs are stored in `output` folders. The scripts can be adapted to analyze similar data.
 
 ### Scripts Overview
 
@@ -70,15 +70,16 @@ Run time:
 2. Script_2 run time: 0 min; 6 sec
 3. Script_3 run time: 0 min; 57 sec
 
-Reproduction instructions: 
-All data required for reproducing our analysis and results is found inside the three “required_files” folders. Running the scripts as outlined above will reproduce our results. The attached scripts can be adapted to analyze similar data. 
+------------------------------------------------------------------------
 
-Trouble-shooting:
-A recursive error (shown below) sometimes occurs when running Script 3. This problem can be fixed by quitting the R-studio session and re-opening the Script_3.Rmd file. 
+## Trouble-shooting
 
+A recursive error (shown below) sometimes occurs when running Script 3. This problem can be fixed by restarting the R-studio session and re-opening the Script_3.Rmd file. 
+
+```
 Error: no more error handlers available (recursive errors?); invoking 'abort' restart
 Warning: type 29 is unimplemented in 'type2char'
 Error in scan(file = file, what = what, sep = sep, quote = quote, dec = dec,  : 
   INTEGER() can only be applied to a 'integer', not a 'unknown type #29'
-
+```
 
