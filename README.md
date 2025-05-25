@@ -25,15 +25,17 @@ Versions the software has been tested on:
 Non-standard hardware:
 --None required
 
-Installation guide and Instructions for running: 
-1.	Navigate to Hepatocyte-Dual-Omics GitHub repository: https://github.com/kosaku-san/Hepatocyte-Dual-Omics
-2.	Under “Code” button, click “Download ZIP” to download all contents of the repository, which includes 3 scripts and 3 required files folders.  
-3.	On local computer downloads page, double-click “Hepatocyte-Dual-Omics-main.zip” to open zipped folder. 
-4.	Navigate to Script 1 Folder inside main folder. Do not change the location of the “Script_1.Rmd” file or “script1_required_files” folder. 
-5.	Open “Script_1.Rmd” file in RStudio. 
-6.	In RStudio, click “Run” and select “Run All”. 
-7.	Repeat steps 4-6 for Script 2 and Script 3 Folders. 
-8.	Results can be found in respective folders.
+------------------------------------------------------------------------
+
+## Clone the Repository
+
+To clone this repository locally:
+
+``` bash
+git clone https://github.com/kosaku-san/Hepatocyte-Dual-Omics
+```
+
+------------------------------------------------------------------------
 
 Demo:
 No demo is necessary. The scripts can be directly run with the raw data included inside the “required_files” folders. 
