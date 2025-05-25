@@ -33,9 +33,7 @@ The preprint version is available at https://doi.org/10.1101/2025.04.15.649020.
     plyr (1.8.9),\
     data.table (1.17.0)
 
--   *Note: Other operating systems and versions of R / R-studio are likely compatible but have not been tested. *
-
-Non-standard hardware is not required.
+-   Other operating systems and versions of R / R-studio are likely compatible but have not been tested. Non-standard hardware is not required.
 
 ------------------------------------------------------------------------
 
