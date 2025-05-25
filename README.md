@@ -8,6 +8,21 @@ The preprint version is available at https://doi.org/10.1101/2025.04.15.649020.
 
 ------------------------------------------------------------------------
 
+## Reproduction Instructions
+
+All data required to reproduce the analysis and results can be found in the three `required_files` folders. The corresponding outputs are stored in `output` folders.
+
+### Scripts Overview
+
+-   **`Script1`**
+    -   Generates `differential_abundance_analysis.csv` with log2 Fold Change and adjusted p-values
+    -   Produces PCA plots
+-   **`Script2`**
+    -   Produces `mapped_data.csv`, which includes 1:1 protein-mRNA mappings
+-   **`Script3`**
+    -   Main script used to generate figures for the manuscript
+------------------------------------------------------------------------
+
 ## Software Versions
 
 -   **Operating System:** macOS 11.6.2 (Big Sur)
