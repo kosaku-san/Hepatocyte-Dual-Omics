@@ -18,7 +18,7 @@ All data required for reproducing our analysis and results is found inside the t
     -   Generates `differential_abundance_analysis.csv` with log2 Fold Change and adjusted p-values.
     -   Produces PCA plots.
 -   **`Script2`**
-    -   Outputs `mapped_data.csv`, which includes 1:1 protein-mRNA mappings with Uniport symbol, accession number, Ensemble symbol, and Ensemble ID. 
+    -   Outputs `mapped_data.csv`, which includes 1:1 protein-mRNA mappings with Uniprot symbol, accession number, Ensembl symbol, and Ensembl ID. 
 -   **`Script3`**
     -   Main script used to make figures shown in the preprint.
 ------------------------------------------------------------------------
