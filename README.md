@@ -49,7 +49,8 @@ All data required for reproducing our analysis and results is found inside the t
     plyr (1.8.9),\
     data.table (1.17.0)
 
--   Other operating systems and versions of R / R-studio are likely compatible but have not been tested. Non-standard hardware is not required.
+-   Other operating systems and versions of R / R-studio are likely compatible but have not been tested.
+-   Non-standard hardware is not required.
 
 ------------------------------------------------------------------------
 
