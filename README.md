@@ -85,3 +85,9 @@ Error in scan(file = file, what = what, sep = sep, quote = quote, dec = dec,  :
   INTEGER() can only be applied to a 'integer', not a 'unknown type #29'
 ```
 
+------------------------------------------------------------------------
+
+## License
+
+This project is covered under the MIT License.
+
