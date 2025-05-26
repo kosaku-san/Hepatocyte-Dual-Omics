@@ -61,6 +61,7 @@ To clone this repository locally:
 ``` bash
 git clone https://github.com/kosaku-san/Hepatocyte-Dual-Omics
 ```
+Users can also download the entire repository by clicking the "Download ZIP" button under the "Code" tab.
 
 ------------------------------------------------------------------------
 
